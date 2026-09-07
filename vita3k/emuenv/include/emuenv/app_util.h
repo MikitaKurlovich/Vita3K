@@ -129,6 +129,17 @@ struct SceAppUtilMountPoint {
     SceChar8 data[SCE_APPUTIL_MOUNTPOINT_DATA_MAXSIZE];
 };
 
+struct SceAppUtilInitParam {
+    SceSize workBufSize;
+    uint8_t reserved[60];
+};
+
+struct SceAppUtilBootParam {
+    uint32_t attr;
+    uint32_t bootAppId;
+    uint8_t reserved[32];
+};
+
 enum SceSystemParamId {
     SCE_SYSTEM_PARAM_ID_LANG = 1,
     SCE_SYSTEM_PARAM_ID_ENTER_BUTTON,

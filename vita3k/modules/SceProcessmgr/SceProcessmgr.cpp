@@ -17,8 +17,11 @@
 
 #include "SceProcessmgr.h"
 
+#include <cpu/functions.h>
 #include <io/functions.h>
 #include <kernel/state.h>
+#include <kernel/thread/thread_state.h>
+#include <modules/module_parent.h>
 #include <rtc/rtc.h>
 
 #include <util/safe_time.h>
@@ -101,6 +104,8 @@ EXPORT(int, sceKernelCDialogSetLeaseLimit) {
 
 EXPORT(int, sceKernelCallAbortHandler, uint32_t param1, uint32_t param2) {
     TRACY_FUNC(sceKernelCallAbortHandler, param1, param2);
+    LOG_ERROR("sceKernelCallAbortHandler({:08X}, {:08X}) — guest already aborted", param1, param2);
+    dump_guest_abort_state(emuenv, thread_id, "sceKernelCallAbortHandler");
     return UNIMPLEMENTED();
 }
 
