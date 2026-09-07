@@ -84,23 +84,13 @@ void Debugger::deinit() {
 }
 
 uint32_t Debugger::record_import_flight(const ImportFlightRecord &rec) {
-    std::lock_guard<std::mutex> lock(flight_mutex);
-    const uint32_t seq = import_flight_seq.fetch_add(1, std::memory_order_relaxed);
-    ImportFlightRecord stored = rec;
-    stored.gen = seq + 1;
-    import_flight[seq % import_flight_size] = stored;
-    return seq;
+    return import_flight.record(rec);
 }
 
 void Debugger::finish_import_flight(uint32_t seq, uint32_t ret) {
-    std::lock_guard<std::mutex> lock(flight_mutex);
-    auto &slot = import_flight[seq % import_flight_size];
-    if (slot.gen == seq + 1)
-        slot.ret = ret;
+    import_flight.finish(seq, ret);
 }
 
 void Debugger::copy_import_flight(std::array<ImportFlightRecord, import_flight_size> &out, uint32_t &seq) const {
-    std::lock_guard<std::mutex> lock(flight_mutex);
-    out = import_flight;
-    seq = import_flight_seq.load(std::memory_order_relaxed);
+    import_flight.copy(out, seq);
 }

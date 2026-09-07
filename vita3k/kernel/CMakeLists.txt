@@ -7,6 +7,7 @@ set(SOURCE_LIST
 	include/kernel/relocation.h
 	include/kernel/object_store.h
 	include/kernel/debugger.h
+	include/kernel/import_flight.h
 	include/kernel/load_self.h
 	include/kernel/module_info.h
 	include/kernel/callback.h
@@ -37,8 +38,12 @@ if(BUILD_TESTING AND NOT ANDROID)
 	add_executable(
 		kernel-tests
 		tests/module_info_tests.cpp
+		tests/import_flight_tests.cpp
 	)
 	target_include_directories(kernel-tests PRIVATE include)
 	target_link_libraries(kernel-tests PRIVATE googletest mem util)
+	if(UNIX)
+		target_link_libraries(kernel-tests PRIVATE pthread)
+	endif()
 	add_test(NAME kernel COMMAND kernel-tests)
 endif()

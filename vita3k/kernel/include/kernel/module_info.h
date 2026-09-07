@@ -76,6 +76,22 @@ inline EhabiRange normalize_ehabi_range(Address top, Address end) {
     return { top, end, "ok" };
 }
 
+// PT_ARM_EXIDX is the ELF-authoritative table. Prefer it when both ranges exist
+// and disagree; fall back to it when module_info had no usable pair.
+inline EhabiRange select_exidx_range(const EhabiRange &from_info, const EhabiRange &from_phdr) {
+    if (from_info.top && from_phdr.top && from_phdr.top != from_info.top) {
+        EhabiRange chosen = from_phdr;
+        chosen.reason = "phdr-preferred";
+        return chosen;
+    }
+    if (!from_info.top && from_phdr.top) {
+        EhabiRange chosen = from_phdr;
+        chosen.reason = "phdr-fallback";
+        return chosen;
+    }
+    return from_info;
+}
+
 inline bool segment_contains(const SceKernelSegmentInfo &seg, Address addr) {
     const Address vaddr = seg.vaddr.address();
     return addr >= vaddr && addr < vaddr + seg.memsz;

@@ -21,7 +21,11 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstring>
+#include <memory>
+#include <mutex>
+#include <thread>
 
 TEST(relocate_module_info_offset, offset_zero_is_valid) {
     EXPECT_EQ(relocate_module_info_offset(0, 0x81000000, 0x1000), 0x81000000u);
@@ -303,4 +307,74 @@ TEST(module_has_loaded_code, loaded_segment) {
 TEST(path_basename_is, device_path) {
     EXPECT_TRUE(path_basename_is("vs0:sys/external/libc.suprx", "libc.suprx"));
     EXPECT_FALSE(path_basename_is("app0:libc.suprx.bak", "libc.suprx"));
+}
+
+TEST(select_exidx_range, mismatch_prefers_phdr) {
+    const EhabiRange info{ 0x81000000, 0x81000040, "ok" };
+    const EhabiRange phdr{ 0x81010000, 0x81010080, "ok" };
+    const EhabiRange chosen = select_exidx_range(info, phdr);
+    EXPECT_EQ(chosen.top, 0x81010000u);
+    EXPECT_EQ(chosen.end, 0x81010080u);
+    EXPECT_STREQ(chosen.reason, "phdr-preferred");
+}
+
+TEST(select_exidx_range, empty_info_falls_back_to_phdr) {
+    const EhabiRange info{ 0, 0, "no-tables" };
+    const EhabiRange phdr{ 0x81000000, 0x81000040, "ok" };
+    const EhabiRange chosen = select_exidx_range(info, phdr);
+    EXPECT_EQ(chosen.top, 0x81000000u);
+    EXPECT_STREQ(chosen.reason, "phdr-fallback");
+}
+
+TEST(select_exidx_range, empty_phdr_keeps_info) {
+    const EhabiRange info{ 0x81000000, 0x81000040, "ok" };
+    const EhabiRange phdr{ 0, 0, "no-tables" };
+    const EhabiRange chosen = select_exidx_range(info, phdr);
+    EXPECT_EQ(chosen.top, 0x81000000u);
+    EXPECT_STREQ(chosen.reason, "ok");
+}
+
+TEST(module_snapshot, copy_under_lock_survives_unload) {
+    std::mutex m;
+    auto live = std::make_shared<SceKernelModuleInfo>();
+    live->modid = 7;
+    live->segments[0].size = sizeof(SceKernelSegmentInfo);
+    live->segments[0].vaddr = Ptr<const void>(0x81000000);
+    live->segments[0].memsz = 0x1000;
+
+    std::atomic<int> snapshots{ 0 };
+    std::thread reader([&] {
+        for (int i = 0; i < 8000; ++i) {
+            SceKernelModuleInfo host{};
+            bool found = false;
+            {
+                const std::lock_guard<std::mutex> lock(m);
+                if (live && module_contains_addr(*live, 0x81000010)) {
+                    host = *live;
+                    found = true;
+                }
+            }
+            if (found) {
+                EXPECT_EQ(host.modid, 7);
+                snapshots.fetch_add(1);
+            }
+        }
+    });
+    std::thread unloader([&] {
+        for (int i = 0; i < 8000; ++i) {
+            const std::lock_guard<std::mutex> lock(m);
+            if ((i % 16) == 0)
+                live.reset();
+            else if (!live) {
+                live = std::make_shared<SceKernelModuleInfo>();
+                live->modid = 7;
+                live->segments[0].size = sizeof(SceKernelSegmentInfo);
+                live->segments[0].vaddr = Ptr<const void>(0x81000000);
+                live->segments[0].memsz = 0x1000;
+            }
+        }
+    });
+    reader.join();
+    unloader.join();
+    EXPECT_GT(snapshots.load(), 0);
 }

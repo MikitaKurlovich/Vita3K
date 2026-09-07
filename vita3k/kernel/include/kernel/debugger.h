@@ -17,12 +17,12 @@
 
 #pragma once
 #include <cpu/state.h>
+#include <kernel/import_flight.h>
 #include <mem/state.h>
 #include <mem/util.h>
 #include <util/types.h>
 
 #include <array>
-#include <atomic>
 #include <map>
 #include <mutex>
 
@@ -41,18 +41,6 @@ struct WatchMemory {
 typedef std::map<Address, WatchMemory> WatchMemoryAddrs;
 typedef std::map<Address, Breakpoint> Breakpoints;
 
-struct ImportFlightRecord {
-    uint32_t nid = 0;
-    uint32_t lr = 0;
-    uint32_t r0 = 0;
-    uint32_t r1 = 0;
-    uint32_t r2 = 0;
-    uint32_t r3 = 0;
-    uint32_t ret = 0;
-    uint32_t gen = 0;
-    SceUID thread_id = 0;
-};
-
 struct Debugger {
     Debugger() = delete;
     explicit Debugger(KernelState &kernel);
@@ -68,7 +56,7 @@ struct Debugger {
     bool log_ehabi = false;
     bool dump_abort_state = false;
 
-    static constexpr size_t import_flight_size = 64;
+    static constexpr size_t import_flight_size = ImportFlightRing::size;
     uint32_t record_import_flight(const ImportFlightRecord &rec);
     void finish_import_flight(uint32_t seq, uint32_t ret);
     void copy_import_flight(std::array<ImportFlightRecord, import_flight_size> &out, uint32_t &seq) const;
@@ -83,10 +71,8 @@ struct Debugger {
 
 private:
     std::mutex mutex;
-    mutable std::mutex flight_mutex;
     KernelState &parent;
     WatchMemoryAddrs watch_memory_addrs;
     Breakpoints breakpoints;
-    std::array<ImportFlightRecord, import_flight_size> import_flight{};
-    std::atomic<uint32_t> import_flight_seq{ 0 };
+    ImportFlightRing import_flight;
 };

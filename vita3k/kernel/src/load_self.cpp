@@ -831,12 +831,8 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
     if (exidx.top && from_phdr.top && from_phdr.top != exidx.top) {
         LOG_WARN("[EHABI] module={} phdr/module_info EXIDX mismatch phdr=0x{:08X} info=0x{:08X} hint=\"using PT_ARM_EXIDX\"",
             ehabi_name, from_phdr.top, exidx.top);
-        exidx = from_phdr;
-        exidx.reason = "phdr-preferred";
-    } else if (!exidx.top && from_phdr.top) {
-        exidx = from_phdr;
-        exidx.reason = "phdr-fallback";
     }
+    exidx = select_exidx_range(exidx, from_phdr);
 
     sceKernelModuleInfo->exidx_top = Ptr<const void>(exidx.top);
     sceKernelModuleInfo->exidx_btm = Ptr<const void>(exidx.end);
