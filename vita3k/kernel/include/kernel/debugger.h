@@ -56,7 +56,7 @@ struct Debugger {
     bool log_ehabi = false;
     bool dump_abort_state = false;
 
-    static constexpr size_t import_flight_size = ImportFlightRing::size;
+    static constexpr size_t import_flight_size = ImportFlightRing::kCapacity;
     uint32_t record_import_flight(const ImportFlightRecord &rec);
     void finish_import_flight(uint32_t seq, uint32_t ret);
     void copy_import_flight(std::array<ImportFlightRecord, import_flight_size> &out, uint32_t &seq) const;

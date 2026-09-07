@@ -37,33 +37,34 @@ struct ImportFlightRecord {
 
 // Ring of HLE import records. finish() writes ret only when gen still matches
 // the seq that occupied the slot, so wraparound cannot clobber a live finish.
+// Do not name the buffer `slots`: Qt keywords.h #defines slots to empty.
 struct ImportFlightRing {
-    static constexpr size_t size = 64;
+    static constexpr size_t kCapacity = 64;
 
     uint32_t record(const ImportFlightRecord &rec) {
         std::lock_guard<std::mutex> lock(mutex);
         const uint32_t seq = seq_counter.fetch_add(1, std::memory_order_relaxed);
         ImportFlightRecord stored = rec;
         stored.gen = seq + 1;
-        slots[seq % size] = stored;
+        records[seq % kCapacity] = stored;
         return seq;
     }
 
     void finish(uint32_t seq, uint32_t ret) {
         std::lock_guard<std::mutex> lock(mutex);
-        auto &slot = slots[seq % size];
-        if (slot.gen == seq + 1)
-            slot.ret = ret;
+        auto &entry = records[seq % kCapacity];
+        if (entry.gen == seq + 1)
+            entry.ret = ret;
     }
 
-    void copy(std::array<ImportFlightRecord, size> &out, uint32_t &seq) const {
+    void copy(std::array<ImportFlightRecord, kCapacity> &out, uint32_t &seq) const {
         std::lock_guard<std::mutex> lock(mutex);
-        out = slots;
+        out = records;
         seq = seq_counter.load(std::memory_order_relaxed);
     }
 
 private:
     mutable std::mutex mutex;
-    std::array<ImportFlightRecord, size> slots{};
+    std::array<ImportFlightRecord, kCapacity> records{};
     std::atomic<uint32_t> seq_counter{ 0 };
 };

@@ -25,7 +25,7 @@
 
 TEST(import_flight, wrap_does_not_clobber_stale_finish) {
     ImportFlightRing ring;
-    for (uint32_t i = 0; i < ImportFlightRing::size + 8; ++i) {
+    for (uint32_t i = 0; i < ImportFlightRing::kCapacity + 8; ++i) {
         ImportFlightRecord rec{};
         rec.nid = i + 1;
         const uint32_t seq = ring.record(rec);
@@ -34,12 +34,12 @@ TEST(import_flight, wrap_does_not_clobber_stale_finish) {
 
     ring.finish(0, 0xDEADBEEF);
 
-    std::array<ImportFlightRecord, ImportFlightRing::size> recs{};
+    std::array<ImportFlightRecord, ImportFlightRing::kCapacity> recs{};
     uint32_t seq = 0;
     ring.copy(recs, seq);
-    EXPECT_EQ(seq, ImportFlightRing::size + 8);
+    EXPECT_EQ(seq, ImportFlightRing::kCapacity + 8);
     EXPECT_NE(recs[0].ret, 0xDEADBEEFu);
-    EXPECT_EQ(recs[0].nid, ImportFlightRing::size + 1);
+    EXPECT_EQ(recs[0].nid, ImportFlightRing::kCapacity + 1);
 }
 
 TEST(import_flight, two_threads_seq_is_unique_and_dense) {
