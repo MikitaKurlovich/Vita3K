@@ -410,9 +410,14 @@ EXPORT(SceInt32, sceNgsSystemRelease, ngs::System *system) {
     return SCE_NGS_OK;
 }
 
-EXPORT(int, sceNgsSystemSetFlags) {
-    TRACY_FUNC(sceNgsSystemSetFlags);
-    return UNIMPLEMENTED();
+EXPORT(int, sceNgsSystemSetFlags, ngs::System *system, SceUInt32 flags) {
+    TRACY_FUNC(sceNgsSystemSetFlags, system, flags);
+    if (!emuenv.cfg.current_config.ngs_enable)
+        return SCE_NGS_OK;
+    if (!system)
+        return RET_ERROR(SCE_NGS_ERROR_INVALID_ARG);
+    STUBBED("NGS system flags ignored");
+    return SCE_NGS_OK;
 }
 
 EXPORT(int, sceNgsSystemSetParamErrorCallback) {

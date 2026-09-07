@@ -20,6 +20,7 @@
 #include <util/log.h>
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <codecvt>
 #include <locale>
@@ -38,12 +39,13 @@ std::string wide_to_utf(const std::wstring &str) {
 }
 
 std::string trim_copy(std::string_view str) {
-    return str
-        | std::views::drop_while([](unsigned char ch) { return std::isspace(ch); })
-        | std::views::reverse
-        | std::views::drop_while([](unsigned char ch) { return std::isspace(ch); })
-        | std::views::reverse
-        | std::ranges::to<std::string>();
+    // GCC 13 (Ubuntu 24.04) has C++23 but not std::ranges::to (GCC 14+).
+    const auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+    const auto first = std::ranges::find_if(str, not_space);
+    const auto last = std::ranges::find_if(str | std::views::reverse, not_space).base();
+    if (first >= last)
+        return {};
+    return std::string(first, last);
 }
 
 std::string remove_special_chars(std::string str) {

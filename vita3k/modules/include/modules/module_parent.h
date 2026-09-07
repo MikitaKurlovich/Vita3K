@@ -59,3 +59,6 @@ void load_taihen_plugins_for_title(EmuEnvState &emuenv, const std::string &title
 
 Ptr<void> create_vtable(const std::vector<uint32_t> &nids, MemState &mem);
 Ptr<void> get_client_vtable(KernelState &kernel, MemState &mem);
+
+void dump_import_flight_recorder(EmuEnvState &emuenv);
+void dump_guest_abort_state(EmuEnvState &emuenv, SceUID thread_id, const char *reason);

@@ -116,10 +116,11 @@ EXPORT(int, sceFiosOverlayResolveWithRangeSync02, SceUID processId, SceFiosOverl
 
 EXPORT(int, sceFiosOverlayThreadIsDisabled02) {
     TRACY_FUNC(sceFiosOverlayThreadIsDisabled02);
-    return UNIMPLEMENTED();
+    return emuenv.io.fios_overlay_thread_disabled;
 }
 
-EXPORT(int, sceFiosOverlayThreadSetDisabled02) {
-    TRACY_FUNC(sceFiosOverlayThreadSetDisabled02);
-    return UNIMPLEMENTED();
+EXPORT(int, sceFiosOverlayThreadSetDisabled02, int disabled) {
+    TRACY_FUNC(sceFiosOverlayThreadSetDisabled02, disabled);
+    emuenv.io.fios_overlay_thread_disabled = disabled;
+    return SCE_FIOS_OK;
 }

@@ -22,6 +22,7 @@
 
 #include <mem/ptr.h>
 
+#include <atomic>
 #include <dynarmic/frontend/A32/a32_ir_emitter.h>
 #include <dynarmic/interface/A32/coprocessor.h>
 #include <dynarmic/interface/exclusive_monitor.h>
@@ -200,7 +201,14 @@ public:
     void MemoryWrite(Dynarmic::A32::VAddr addr, T value) {
         Ptr<T> ptr{ addr };
         if (!ptr || !ptr.valid(*parent->mem) || ptr.address() < parent->mem->host_page_size) {
-            LOG_ERROR("Invalid write of uint{}_t at addr: 0x{:x}, val = 0x{:x}\n{}", sizeof(T) * 8, addr, value, this->cpu->save_context().description());
+            static std::atomic<int> first_invalid_writes{ 0 };
+            const int n = first_invalid_writes.fetch_add(1, std::memory_order_relaxed);
+            if (n < 3) {
+                LOG_CRITICAL("First guest invalid write #{} of uint{}_t at addr: 0x{:x}, val = 0x{:x} tid={}\n{}",
+                    n + 1, sizeof(T) * 8, addr, value, parent->thread_id, this->cpu->save_context().description());
+            } else {
+                LOG_ERROR("Invalid write of uint{}_t at addr: 0x{:x}, val = 0x{:x}\n{}", sizeof(T) * 8, addr, value, this->cpu->save_context().description());
+            }
 
             auto pc = this->cpu->get_pc();
             if (pc < parent->mem->host_page_size)

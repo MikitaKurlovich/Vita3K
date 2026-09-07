@@ -718,10 +718,27 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
     if (module_info->module_stop != 0xffffffff && module_info->module_stop != 0)
         sceKernelModuleInfo->stop_entry = module_info_segment_address + module_info->module_stop;
 
-    sceKernelModuleInfo->exidx_top = Ptr<const void>(module_info->exidx_top);
-    sceKernelModuleInfo->exidx_btm = Ptr<const void>(module_info->exidx_end);
-    sceKernelModuleInfo->extab_top = Ptr<const void>(module_info->extab_top);
-    sceKernelModuleInfo->extab_btm = Ptr<const void>(module_info->extab_end);
+    // sce_module_info stores EXIDX/EXTAB as offsets from this segment, same as
+    // module_start/tls_start. SceKernelModuleInfo must expose process VAs:
+    // LLE libc looks them up via sceKernelGetModuleInfoByAddr to unwind C++ throws.
+    const auto relocate_info_offset = [&](uint32_t offset) -> Ptr<const void> {
+        if (offset == 0 || offset == 0xffffffff)
+            return Ptr<const void>();
+        const Address seg_base = module_info_segment_address.address();
+        if (offset >= seg_base)
+            return Ptr<const void>(offset);
+        return Ptr<const void>(seg_base + offset);
+    };
+    sceKernelModuleInfo->exidx_top = relocate_info_offset(module_info->exidx_top);
+    sceKernelModuleInfo->exidx_btm = relocate_info_offset(module_info->exidx_end);
+    sceKernelModuleInfo->extab_top = relocate_info_offset(module_info->extab_top);
+    sceKernelModuleInfo->extab_btm = relocate_info_offset(module_info->extab_end);
+    if (sceKernelModuleInfo->exidx_top && sceKernelModuleInfo->exidx_btm) {
+        LOG_INFO("Module {} EXIDX [0x{:08X}-0x{:08X}] EXTAB [0x{:08X}-0x{:08X}]",
+            self_path,
+            sceKernelModuleInfo->exidx_top.address(), sceKernelModuleInfo->exidx_btm.address(),
+            sceKernelModuleInfo->extab_top.address(), sceKernelModuleInfo->extab_btm.address());
+    }
 
     sceKernelModuleInfo->tlsInit = Ptr<const void>(!module_info->tls_start ? 0 : (module_info_segment_address.address() + module_info->tls_start));
     sceKernelModuleInfo->tlsInitSize = module_info->tls_filesz;

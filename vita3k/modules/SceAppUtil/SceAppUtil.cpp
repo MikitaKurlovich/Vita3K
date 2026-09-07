@@ -188,9 +188,12 @@ EXPORT(SceInt32, sceAppUtilDrmOpen, const SceAppUtilDrmAddcontId *dirName, const
     return 0;
 }
 
-EXPORT(int, sceAppUtilInit, void *initParam, void *bootParam) {
+EXPORT(int, sceAppUtilInit, SceAppUtilInitParam *initParam, SceAppUtilBootParam *bootParam) {
     TRACY_FUNC(sceAppUtilInit, initParam, bootParam);
-    return UNIMPLEMENTED();
+    if (bootParam)
+        std::memset(bootParam, 0, sizeof(*bootParam));
+    STUBBED("AppUtil marked initialized; caller workBufSize preserved");
+    return 0;
 }
 
 EXPORT(int, sceAppUtilLaunchWebBrowser) {

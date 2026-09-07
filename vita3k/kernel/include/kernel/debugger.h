@@ -19,7 +19,10 @@
 #include <cpu/state.h>
 #include <mem/state.h>
 #include <mem/util.h>
+#include <util/types.h>
 
+#include <array>
+#include <atomic>
 #include <map>
 
 struct KernelState;
@@ -37,6 +40,17 @@ struct WatchMemory {
 typedef std::map<Address, WatchMemory> WatchMemoryAddrs;
 typedef std::map<Address, Breakpoint> Breakpoints;
 
+struct ImportFlightRecord {
+    uint32_t nid = 0;
+    uint32_t lr = 0;
+    uint32_t r0 = 0;
+    uint32_t r1 = 0;
+    uint32_t r2 = 0;
+    uint32_t r3 = 0;
+    uint32_t ret = 0;
+    SceUID thread_id = 0;
+};
+
 struct Debugger {
     Debugger() = delete;
     explicit Debugger(KernelState &kernel);
@@ -49,6 +63,11 @@ struct Debugger {
     bool log_imports = false;
     bool log_exports = false;
     bool dump_elfs = false;
+
+    // Ring buffer of recent HLE imports. Dumped on guest throw/abort.
+    static constexpr size_t import_flight_size = 64;
+    std::array<ImportFlightRecord, import_flight_size> import_flight{};
+    std::atomic<uint32_t> import_flight_seq{ 0 };
 
     void add_watch_memory_addr(Address addr, size_t size);
     void remove_watch_memory_addr(KernelState &state, Address addr);

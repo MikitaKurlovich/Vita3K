@@ -128,4 +128,5 @@ struct IOState {
     SceUID next_overlay_id = 1;
     // overlay in the order they should be applied
     std::vector<FiosOverlay> overlays;
+    int fios_overlay_thread_disabled = 0;
 };
