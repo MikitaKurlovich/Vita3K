@@ -32,6 +32,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #endif
 
+#include <chrono>
 #include <functional>
 #include <iostream>
 #include <mutex>
@@ -113,6 +114,12 @@ ExitCode init(const Root &root_paths, bool use_stdout) {
 #ifdef __ANDROID__
     // needed, otherwise the log file contains nothing
     spdlog::flush_on(spdlog::level::trace);
+#else
+    spdlog::flush_on(spdlog::level::err);
+    if (full_log_enabled()) {
+        spdlog::flush_on(spdlog::level::trace);
+        spdlog::flush_every(std::chrono::seconds(1));
+    }
 #endif
 
     register_log_exception_handler();
@@ -159,20 +166,35 @@ ExitCode add_sink(const fs::path &log_path) {
 }
 
 void rebuild_default_logger() {
-    std::call_once(s_async_logging_once, []() {
-        spdlog::init_thread_pool(ASYNC_LOG_QUEUE_SIZE, 1);
+    const bool full = full_log_enabled();
+    std::call_once(s_async_logging_once, [full]() {
+        const size_t queue = full ? size_t{ 262144 } : ASYNC_LOG_QUEUE_SIZE;
+        spdlog::init_thread_pool(queue, 1);
     });
 
-    auto duplicate_filter = std::make_shared<spdlog::sinks::dup_filter_sink_mt>(std::chrono::seconds(2));
-    for (const auto &sink : sinks)
-        duplicate_filter->add_sink(sink);
+    const auto overflow = full ? spdlog::async_overflow_policy::block
+                               : spdlog::async_overflow_policy::overrun_oldest;
 
-    auto logger = std::make_shared<spdlog::async_logger>(
-        "vita3k logger",
-        duplicate_filter,
-        spdlog::thread_pool(),
-        spdlog::async_overflow_policy::overrun_oldest);
-    spdlog::set_default_logger(std::move(logger));
+    if (full) {
+        auto logger = std::make_shared<spdlog::async_logger>(
+            "vita3k logger",
+            sinks.begin(),
+            sinks.end(),
+            spdlog::thread_pool(),
+            overflow);
+        spdlog::set_default_logger(std::move(logger));
+    } else {
+        auto duplicate_filter = std::make_shared<spdlog::sinks::dup_filter_sink_mt>(std::chrono::seconds(2));
+        for (const auto &sink : sinks)
+            duplicate_filter->add_sink(sink);
+
+        auto logger = std::make_shared<spdlog::async_logger>(
+            "vita3k logger",
+            duplicate_filter,
+            spdlog::thread_pool(),
+            overflow);
+        spdlog::set_default_logger(std::move(logger));
+    }
     spdlog::set_pattern(LOG_PATTERN);
 }
 

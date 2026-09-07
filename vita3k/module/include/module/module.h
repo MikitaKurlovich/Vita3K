@@ -21,16 +21,20 @@
 
 #include <util/log.h>
 
-#define UNIMPLEMENTED()                                                \
-    ([&]() {                                                           \
-        LOG_WARN_ONCE("Unimplemented {} import called.", export_name); \
-        return 0;                                                      \
+#define UNIMPLEMENTED()                                                     \
+    ([&]() {                                                                \
+        if (logging::full_log_enabled())                                    \
+            LOG_TRACE("Unimplemented {} import called.", export_name);      \
+        LOG_WARN_ONCE("Unimplemented {} import called.", export_name);      \
+        return 0;                                                           \
     })()
 
-#define STUBBED(info)                                                       \
-    ([&]() {                                                                \
-        LOG_WARN_ONCE("Stubbed {} import called. ({})", export_name, info); \
-        return 0;                                                           \
+#define STUBBED(info)                                                            \
+    ([&]() {                                                                     \
+        if (logging::full_log_enabled())                                         \
+            LOG_TRACE("Stubbed {} import called. ({})", export_name, info);      \
+        LOG_WARN_ONCE("Stubbed {} import called. ({})", export_name, info);      \
+        return 0;                                                                \
     })()
 
 #define CALL_EXPORT(name, ...) export_##name(emuenv, thread_id, #name, ##__VA_ARGS__)

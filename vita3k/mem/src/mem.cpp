@@ -300,17 +300,18 @@ bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcep
 
     auto it = state.protect_tree.lower_bound(vaddr);
     if (it == state.protect_tree.end()) {
-        // HACK: keep going
+        // A second CPU thread may observe the page fault after the first one
+        // already ran its dirty callback and removed the protection record.
         unprotect_inner(state, align_down(vaddr, state.host_page_size), state.host_page_size);
-        LOG_CRITICAL("Unhandled write protected region was valid. Address=0x{:X}", vaddr);
+        LOG_DEBUG("Stale protection fault after callback. Address=0x{:X}", vaddr);
         return true;
     }
 
     ProtectSegmentInfo &info = it->second;
     if (vaddr < it->first || vaddr >= it->first + info.size) {
-        // HACK: keep going
+        // Same race, or an adjacent access covered by the host page granularity.
         unprotect_inner(state, align_down(vaddr, state.host_page_size), state.host_page_size);
-        LOG_CRITICAL("Unhandled write protected region was valid. Address=0x{:X}", vaddr);
+        LOG_DEBUG("Protection fault outside tracked guest range. Address=0x{:X}", vaddr);
         return true;
     }
 

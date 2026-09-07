@@ -27,6 +27,7 @@
 #include <util/fs.h>
 
 #include <atomic>
+#include <cstdlib>
 #include <functional>
 #include <type_traits>
 
@@ -67,12 +68,24 @@ void set_level(spdlog::level::level_enum log_level);
 ExitCode add_sink(const fs::path &log_path);
 void set_log_callback(std::function<void(std::string, int)> cb);
 
+// Wrapper/env diagnostic mode (VITA3K_FULL_LOG=1). Skips duplicate-line
+// filtering and logs every HLE miss instead of once-per-process.
+inline bool full_log_enabled() {
+    static const bool enabled = [] {
+        const char *e = std::getenv("VITA3K_FULL_LOG");
+        return e != nullptr && e[0] != '\0' && !(e[0] == '0' && e[1] == '\0');
+    }();
+    return enabled;
+}
+
 } // namespace logging
 
-#define RET_ERROR(error)                                                            \
-    ([&]() {                                                                        \
-        LOG_ERROR_ONCE("{} returned {} ({})", export_name, #error, log_hex(error)); \
-        return static_cast<int>(error);                                             \
+#define RET_ERROR(error)                                                               \
+    ([&]() {                                                                           \
+        if (logging::full_log_enabled())                                               \
+            LOG_TRACE("{} returned {} ({})", export_name, #error, log_hex(error));     \
+        LOG_ERROR_ONCE("{} returned {} ({})", export_name, #error, log_hex(error));    \
+        return static_cast<int>(error);                                                \
     })()
 
 /*
