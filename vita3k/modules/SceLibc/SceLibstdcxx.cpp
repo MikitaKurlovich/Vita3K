@@ -16,14 +16,9 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include <module/module.h>
+#include <modules/module_parent.h>
 
-#include <cpu/functions.h>
-#include <kernel/state.h>
-#include <kernel/thread/thread_state.h>
-#include <mem/ptr.h>
-
-#include <mutex>
-#include <string_view>
+#include <mem/functions.h>
 
 #include <util/tracy.h>
 TRACY_MODULE_NAME(SceLibstdcxx);
@@ -369,7 +364,7 @@ EXPORT(int, _Unlock_shared_ptr_spin_lock) {
 }
 
 EXPORT(int, _Unwind_Resume) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x13D5D5A1) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Xtime_get_ticks) {
@@ -2035,11 +2030,11 @@ EXPORT(int, _ZnwjRKSt9nothrow_t) {
 }
 
 EXPORT(int, __cxa_allocate_exception) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x8C93EFDA) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, __cxa_begin_catch) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x6165EE89) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, __cxa_begin_cleanup) {
@@ -2063,7 +2058,7 @@ EXPORT(int, __cxa_decrement_exception_refcount) {
 }
 
 EXPORT(int, __cxa_end_catch) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x3438F773) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, __cxa_end_cleanup) {
@@ -2071,7 +2066,7 @@ EXPORT(int, __cxa_end_cleanup) {
 }
 
 EXPORT(int, __cxa_free_exception) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x1FFD5FFF) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, __cxa_get_exception_ptr) {
@@ -2082,52 +2077,8 @@ EXPORT(int, __cxa_increment_exception_refcount) {
     return UNIMPLEMENTED();
 }
 
-static bool path_basename_is(std::string_view path, std::string_view name) {
-    const auto pos = path.find_last_of("/\\:");
-    const auto base = pos == std::string_view::npos ? path : path.substr(pos + 1);
-    return base == name;
-}
-
-static bool lle_libc_loaded(KernelState &kernel) {
-    const std::lock_guard<std::mutex> lock(kernel.mutex);
-    for (const auto &[_, mod] : kernel.loaded_modules) {
-        if (path_basename_is(mod->info.path, "libc.suprx"))
-            return true;
-    }
-    return false;
-}
-
-static bool nid_still_svc_stub(KernelState &kernel, MemState &mem, uint32_t nid) {
-    const std::lock_guard<std::mutex> guard(kernel.export_nids_mutex);
-    auto range = kernel.func_binding_infos.equal_range(nid);
-    for (auto it = range.first; it != range.second; ++it) {
-        const uint32_t *stub = Ptr<uint32_t>(it->second.entry_address).get(mem);
-        if (stub && stub[0] == 0xef000000)
-            return true;
-    }
-    return false;
-}
-
-static int hle_cxa_if_lle_unbound(EmuEnvState &emuenv, SceUID thread_id, const char *export_name, uint32_t nid) {
-    if (lle_libc_loaded(emuenv.kernel) && nid_still_svc_stub(emuenv.kernel, emuenv.mem, nid)) {
-        Address pc = 0;
-        const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
-        if (thread && thread->cpu)
-            pc = read_pc(*thread->cpu);
-        LOG_CRITICAL("[EHABI] hle {} reached module=LLE-libc-loaded pc=0x{:08X} reason=import-not-bound-to-LLE-libc hint=\"check --log-imports for library_nid mismatch\"",
-            export_name, pc);
-        if (thread) {
-            thread->exit(-1);
-            if (thread->cpu)
-                stop(*thread->cpu);
-        }
-        return 0;
-    }
-    return UNIMPLEMENTED();
-}
-
 EXPORT(int, __cxa_rethrow) {
-    return hle_cxa_if_lle_unbound(emuenv, thread_id, export_name, 0x21D6C279);
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x21D6C279) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, __cxa_rethrow_primary_exception) {
@@ -2135,11 +2086,11 @@ EXPORT(int, __cxa_rethrow_primary_exception) {
 }
 
 EXPORT(int, __cxa_throw) {
-    return hle_cxa_if_lle_unbound(emuenv, thread_id, export_name, 0xF87E6098);
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0xF87E6098) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, __snc_personality_v0) {
-    return hle_cxa_if_lle_unbound(emuenv, thread_id, export_name, 0xAE42C1D5);
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0xAE42C1D5) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, xtime_get) {

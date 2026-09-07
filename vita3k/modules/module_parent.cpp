@@ -23,12 +23,13 @@
 
 #include <cpu/functions.h>
 #include <emuenv/state.h>
-#include <kernel/thread/thread_state.h>
 #include <io/device.h>
 #include <io/state.h>
 #include <io/vfs.h>
 #include <kernel/load_self.h>
+#include <kernel/module_info.h>
 #include <kernel/state.h>
+#include <kernel/thread/thread_state.h>
 #include <module/load_module.h>
 #include <nids/functions.h>
 #include <packages/license.h>
@@ -168,8 +169,11 @@ void dump_import_flight_recorder(EmuEnvState &emuenv) {
     const uint32_t n = std::min<uint32_t>(seq, Debugger::import_flight_size);
     LOG_ERROR("HLE flight recorder (last {} calls):", n);
     for (uint32_t i = 0; i < n; ++i) {
-        const uint32_t idx = (seq - n + i) % Debugger::import_flight_size;
+        const uint32_t rec_seq = seq - n + i;
+        const uint32_t idx = rec_seq % Debugger::import_flight_size;
         const auto &rec = recs[idx];
+        if (rec.gen != rec_seq + 1)
+            continue;
         LOG_ERROR("  [{}] {} {} tid={} lr={:08X} r0={:08X} r1={:08X} r2={:08X} r3={:08X} ret={:08X}",
             i, log_hex(rec.nid), import_name(rec.nid), rec.thread_id, rec.lr, rec.r0, rec.r1, rec.r2, rec.r3, rec.ret);
     }
@@ -219,7 +223,8 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
     auto &dbg = emuenv.kernel.debugger;
     const bool record_imports = dbg.dump_abort_state || dbg.watch_import_calls;
 
-    uint32_t flight_slot = UINT32_MAX;
+    bool recorded_flight = false;
+    uint32_t flight_seq = 0;
     if (record_imports && !nid_is_blacklisted(nid)) {
         ImportFlightRecord rec{};
         rec.nid = nid;
@@ -230,7 +235,8 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
         rec.r2 = read_reg(cpu, 2);
         rec.r3 = read_reg(cpu, 3);
         rec.ret = 0;
-        flight_slot = dbg.record_import_flight(rec);
+        flight_seq = dbg.record_import_flight(rec);
+        recorded_flight = true;
     }
 
     // HLE - call our C++ function
@@ -253,8 +259,8 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
         }
     }
 
-    if (flight_slot != UINT32_MAX)
-        dbg.finish_import_flight(flight_slot, read_reg(cpu, 0));
+    if (recorded_flight)
+        dbg.finish_import_flight(flight_seq, read_reg(cpu, 0));
 }
 
 struct SceKernelBootimageModules {
@@ -548,4 +554,47 @@ void init_libraries(EmuEnvState &emuenv) {
 #define LIBRARY(name) import_library_init_##name(emuenv);
 #include <modules/library_init_list.inc>
 #undef LIBRARY
+}
+
+bool hle_stopped_unbound_unwind(EmuEnvState &emuenv, SceUID thread_id, const char *export_name, uint32_t nid) {
+    bool lle = false;
+    {
+        const std::lock_guard<std::mutex> lock(emuenv.kernel.mutex);
+        for (const auto &[_, mod] : emuenv.kernel.loaded_modules) {
+            if (path_basename_is(mod->info.path, "libc.suprx") && module_has_loaded_code(mod->info)) {
+                lle = true;
+                break;
+            }
+        }
+    }
+    if (!lle)
+        return false;
+
+    bool unbound = false;
+    {
+        const std::lock_guard<std::mutex> guard(emuenv.kernel.export_nids_mutex);
+        auto range = emuenv.kernel.func_binding_infos.equal_range(nid);
+        for (auto it = range.first; it != range.second; ++it) {
+            const uint32_t *stub = Ptr<uint32_t>(it->second.entry_address).get(emuenv.mem);
+            if (stub && stub[0] == 0xef000000) {
+                unbound = true;
+                break;
+            }
+        }
+    }
+    if (!unbound)
+        return false;
+
+    Address pc = 0;
+    const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
+    if (thread && thread->cpu)
+        pc = read_pc(*thread->cpu);
+    LOG_CRITICAL("[EHABI] hle {} reached module=LLE-libc-loaded pc=0x{:08X} reason=import-not-bound-to-LLE-libc hint=\"check --log-imports for library_nid mismatch\"",
+        export_name, pc);
+    if (thread) {
+        thread->exit(-1);
+        if (thread->cpu)
+            stop(*thread->cpu);
+    }
+    return true;
 }

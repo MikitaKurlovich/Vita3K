@@ -62,3 +62,6 @@ Ptr<void> get_client_vtable(KernelState &kernel, MemState &mem);
 
 void dump_import_flight_recorder(EmuEnvState &emuenv);
 void dump_guest_abort_state(EmuEnvState &emuenv, SceUID thread_id, const char *reason);
+// True if LLE libc.suprx is loaded with real segments and this NID is still an SVC stub.
+// Caller should return 0; otherwise fall through to UNIMPLEMENTED().
+bool hle_stopped_unbound_unwind(EmuEnvState &emuenv, SceUID thread_id, const char *export_name, uint32_t nid);

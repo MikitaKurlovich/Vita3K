@@ -16,13 +16,14 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include <module/module.h>
+#include <modules/module_parent.h>
 
 EXPORT(int, __aeabi_unwind_cpp_pr0) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0xD172A1F6) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, __aeabi_unwind_cpp_pr1) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x6B008191) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, __ashldi3) {

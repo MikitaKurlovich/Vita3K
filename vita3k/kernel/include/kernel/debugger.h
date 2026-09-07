@@ -49,6 +49,7 @@ struct ImportFlightRecord {
     uint32_t r2 = 0;
     uint32_t r3 = 0;
     uint32_t ret = 0;
+    uint32_t gen = 0;
     SceUID thread_id = 0;
 };
 
@@ -69,7 +70,7 @@ struct Debugger {
 
     static constexpr size_t import_flight_size = 64;
     uint32_t record_import_flight(const ImportFlightRecord &rec);
-    void finish_import_flight(uint32_t slot, uint32_t ret);
+    void finish_import_flight(uint32_t seq, uint32_t ret);
     void copy_import_flight(std::array<ImportFlightRecord, import_flight_size> &out, uint32_t &seq) const;
 
     void add_watch_memory_addr(Address addr, size_t size);

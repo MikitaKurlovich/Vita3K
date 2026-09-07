@@ -16,6 +16,7 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include <module/module.h>
+#include <modules/module_parent.h>
 
 #include <io/functions.h>
 #include <kernel/state.h>
@@ -232,7 +233,7 @@ EXPORT(void, __cxa_set_dso_handle_main, Ptr<void> dso) {
 
 EXPORT(int, __set_exidx_main) {
     TRACY_FUNC(__set_exidx_main);
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x1EFFBAC2) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, __tls_get_addr) {

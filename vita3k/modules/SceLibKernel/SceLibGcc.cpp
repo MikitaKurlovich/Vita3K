@@ -16,63 +16,64 @@
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 #include <module/module.h>
+#include <modules/module_parent.h>
 
 EXPORT(int, _Unwind_Backtrace) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0xA22B2436) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_Complete) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x8A5F29D8) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_DeleteException) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x4BB45B70) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_ForcedUnwind) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x7772C028) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_GetCFA) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0xDBE840D6) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_GetDataRelBase) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0xAC15DBA5) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_GetLanguageSpecificData) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0xBAC00FF7) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_GetRegionStart) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0xDA5097CE) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_GetTextRelBase) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x8D4953C7) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_RaiseException) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x12472ADD) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, __Unwind_Resume) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x74274866) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_Resume_or_Rethrow) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x7DFC519A) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_VRS_Get) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0x0DFF2B2C) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_VRS_Pop) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0xF16E32FC) ? 0 : UNIMPLEMENTED();
 }
 
 EXPORT(int, _Unwind_VRS_Set) {
-    return UNIMPLEMENTED();
+    return hle_stopped_unbound_unwind(emuenv, thread_id, export_name, 0xDAB28374) ? 0 : UNIMPLEMENTED();
 }
