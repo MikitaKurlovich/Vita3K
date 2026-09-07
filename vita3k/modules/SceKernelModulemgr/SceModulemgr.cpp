@@ -121,13 +121,8 @@ EXPORT(int, sceKernelGetModuleIdByAddr, Ptr<void> addr) {
     const std::lock_guard<std::mutex> lock(emuenv.kernel.mutex);
 
     for (const auto &module : emuenv.kernel.loaded_modules) {
-        for (auto &segment : module.second->info.segments) {
-            const auto segment_address_begin = segment.vaddr.address();
-            const auto segment_address_end = segment_address_begin + segment.memsz;
-            if (addr.address() > segment_address_begin && addr.address() < segment_address_end) {
-                return module.first;
-            }
-        }
+        if (module_contains_addr(module.second->info, addr.address()))
+            return module.first;
     }
 
     return RET_ERROR(SCE_KERNEL_ERROR_MODULEMGR_NOENT);

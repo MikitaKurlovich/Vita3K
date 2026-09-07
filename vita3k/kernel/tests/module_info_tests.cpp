@@ -35,8 +35,16 @@ TEST(relocate_module_info_offset, interior_offset) {
     EXPECT_EQ(relocate_module_info_offset(0x100, 0x81000000, 0x1000), 0x81000100u);
 }
 
-TEST(relocate_module_info_offset, offset_at_seg_size_is_null) {
+TEST(relocate_module_info_offset, start_at_seg_size_is_null) {
     EXPECT_EQ(relocate_module_info_offset(0x1000, 0x81000000, 0x1000), 0u);
+}
+
+TEST(relocate_module_info_offset, exclusive_end_at_seg_size) {
+    EXPECT_EQ(relocate_module_info_offset(0x1000, 0x81000000, 0x1000, ModuleInfoOffsetKind::ExclusiveEnd), 0x81001000u);
+}
+
+TEST(relocate_module_info_offset, exclusive_end_past_seg_size) {
+    EXPECT_EQ(relocate_module_info_offset(0x1001, 0x81000000, 0x1000, ModuleInfoOffsetKind::ExclusiveEnd), 0u);
 }
 
 TEST(relocate_module_info_offset, last_byte_of_segment) {
@@ -83,6 +91,15 @@ TEST(normalize_ehabi_range, unaligned_length_kept) {
     EXPECT_STREQ(r.reason, "ok");
 }
 
+TEST(normalize_ehabi_range, exclusive_end_at_seg_limit) {
+    const Address top = relocate_module_info_offset(0, 0x81000000, 0x1000);
+    const Address end = relocate_module_info_offset(0x1000, 0x81000000, 0x1000, ModuleInfoOffsetKind::ExclusiveEnd);
+    const EhabiRange r = normalize_ehabi_range(top, end);
+    EXPECT_EQ(r.top, 0x81000000u);
+    EXPECT_EQ(r.end, 0x81001000u);
+    EXPECT_STREQ(r.reason, "ok");
+}
+
 TEST(normalize_ehabi_range, fake_old_sdk_pair) {
     // offsets (0, 1) relocated into a 1-byte span
     const Address top = relocate_module_info_offset(0, 0x81000000, 0x1000);
@@ -107,6 +124,22 @@ TEST(exidx_from_phdr, inside_relocated_seg1) {
     Address end = 0;
     EXPECT_EQ(exidx_from_phdr(0x00011000, 0x10, segs, &end), 0x82001000u);
     EXPECT_EQ(end, 0x82001010u);
+}
+
+TEST(exidx_from_phdr, exclusive_end_at_seg_limit) {
+    SegmentInfosForReloc segs;
+    segs[0] = SegmentInfoForReloc{ 0x81000000, 0x81000000, 0x1000 };
+    Address end = 0;
+    EXPECT_EQ(exidx_from_phdr(0x81000FF8, 0x8, segs, &end), 0x81000FF8u);
+    EXPECT_EQ(end, 0x81001000u);
+}
+
+TEST(exidx_from_phdr, table_past_segment_rejected) {
+    SegmentInfosForReloc segs;
+    segs[0] = SegmentInfoForReloc{ 0x81000000, 0x81000000, 0x1000 };
+    Address end = 0;
+    EXPECT_EQ(exidx_from_phdr(0x81000FF0, 0x20, segs, &end), 0u);
+    EXPECT_EQ(end, 0u);
 }
 
 TEST(exidx_from_phdr, outside_segments) {
@@ -143,8 +176,8 @@ TEST(clamped_module_info_copy_size, guest_smaller) {
     EXPECT_EQ(clamped_module_info_copy_size(0x40), 0x40u);
 }
 
-TEST(clamped_module_info_copy_size, guest_larger) {
-    EXPECT_EQ(clamped_module_info_copy_size(0x1000), static_cast<uint32_t>(sizeof(SceKernelModuleInfo)));
+TEST(effective_module_info_copy_size, zero_means_full_struct) {
+    EXPECT_EQ(effective_module_info_copy_size(0), static_cast<uint32_t>(sizeof(SceKernelModuleInfo)));
 }
 
 class ModuleInfoCopy : public ::testing::Test {
@@ -194,6 +227,23 @@ TEST_F(ModuleInfoCopy, copies_min_guest_size) {
     EXPECT_EQ(copy_module_info_to_guest(&src, info_va, mem), SCE_KERNEL_OK);
     EXPECT_EQ(clamped_module_info_copy_size(0x40), 0x40u);
     EXPECT_EQ(Ptr<SceKernelModuleInfo>(info_va).get(mem)->modid, 42);
+}
+
+TEST_F(ModuleInfoCopy, copies_full_struct_when_guest_size_zero) {
+    const Address info_va = alloc(mem, sizeof(SceKernelModuleInfo), "modinfo");
+    ASSERT_NE(info_va, 0u);
+    auto *guest = Ptr<SceKernelModuleInfo>(info_va).get(mem);
+    std::memset(guest, 0, sizeof(*guest));
+
+    SceKernelModuleInfo src{};
+    src.size = sizeof(SceKernelModuleInfo);
+    src.modid = 11;
+    src.exidx_top = Ptr<const void>(0x81000000);
+    src.exidx_btm = Ptr<const void>(0x81000040);
+    EXPECT_EQ(copy_module_info_to_guest(&src, info_va, mem), SCE_KERNEL_OK);
+    EXPECT_EQ(guest->modid, 11);
+    EXPECT_EQ(guest->exidx_top.address(), 0x81000000u);
+    EXPECT_EQ(guest->exidx_btm.address(), 0x81000040u);
 }
 
 TEST_F(ModuleInfoCopy, copies_struct_when_guest_size_huge) {

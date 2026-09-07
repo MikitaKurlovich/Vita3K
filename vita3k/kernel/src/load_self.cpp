@@ -810,9 +810,9 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
     const std::string ehabi_name = ehabi_module_label(module_info->name, self_path);
 
     const Address exidx_top_raw = relocate_module_info_offset(module_info->exidx_top, seg_base, seg_size);
-    const Address exidx_end_raw = relocate_module_info_offset(module_info->exidx_end, seg_base, seg_size);
+    const Address exidx_end_raw = relocate_module_info_offset(module_info->exidx_end, seg_base, seg_size, ModuleInfoOffsetKind::ExclusiveEnd);
     const Address extab_top_raw = relocate_module_info_offset(module_info->extab_top, seg_base, seg_size);
-    const Address extab_end_raw = relocate_module_info_offset(module_info->extab_end, seg_base, seg_size);
+    const Address extab_end_raw = relocate_module_info_offset(module_info->extab_end, seg_base, seg_size, ModuleInfoOffsetKind::ExclusiveEnd);
 
     EhabiRange exidx = normalize_ehabi_range(exidx_top_raw, exidx_end_raw);
     const EhabiRange extab = normalize_ehabi_range(extab_top_raw, extab_end_raw);
@@ -823,10 +823,12 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
         LOG_WARN("[EHABI] module={} phdr/module_info EXIDX mismatch phdr=0x{:08X} info=0x{:08X} hint=\"using module_info\"",
             ehabi_name, phdr_top, exidx.top);
     }
-    if (!exidx.top && phdr_top && std::string_view(exidx.reason) == "no-tables") {
-        exidx.top = phdr_top;
-        exidx.end = phdr_end;
-        exidx.reason = "phdr-fallback";
+    if (!exidx.top && phdr_top) {
+        const EhabiRange from_phdr = normalize_ehabi_range(phdr_top, phdr_end);
+        if (from_phdr.top) {
+            exidx = from_phdr;
+            exidx.reason = "phdr-fallback";
+        }
     }
 
     sceKernelModuleInfo->exidx_top = Ptr<const void>(exidx.top);
@@ -835,8 +837,9 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
     sceKernelModuleInfo->extab_btm = Ptr<const void>(extab.end);
 
     if (exidx.top) {
-        LOG_INFO("[EHABI] module={} exidx=0x{:08X}-0x{:08X} extab=0x{:08X}-0x{:08X} relocated=yes",
-            ehabi_name, exidx.top, exidx.end, extab.top, extab.end);
+        LOG_INFO("[EHABI] module={} exidx=0x{:08X}-0x{:08X} extab=0x{:08X}-0x{:08X} relocated=yes{}",
+            ehabi_name, exidx.top, exidx.end, extab.top, extab.end,
+            std::string_view(exidx.reason) == "phdr-fallback" ? " source=phdr-fallback" : "");
     } else if (module_info->exidx_top != 0xffffffff && module_info->exidx_top >= seg_size) {
         LOG_INFO("[EHABI] module={} exidx=none reason=offset-out-of-segment off=0x{:08X} seg=0x{:08X}+0x{:X} hint=\"C++ throw in this module will terminate; run with --dump-elfs and attach log\"",
             ehabi_name, module_info->exidx_top, seg_base, seg_size);

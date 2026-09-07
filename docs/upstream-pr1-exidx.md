@@ -6,7 +6,7 @@
 
 This change:
 
-- relocates EXIDX/EXTAB with `kernel/module_info.h` (offset 0 is valid; sentinel is only `0xffffffff`)
+- relocates EXIDX/EXTAB with `kernel/module_info.h` (offset 0 is valid; sentinel is only `0xffffffff`; exclusive-end may equal `seg_size`)
 - drops degenerate pairs (`end-top < 8`, including old-SDK fake `(0,1)` from vita-toolchain `sce-elf.c`)
 - cross-checks `PT_ARM_EXIDX` via original `p_vaddr` of the owning PT_LOAD
 - copies `SceKernelModuleInfo` under one `kernel.mutex` lock (`copy_module_info_by_addr`), `Ptr<>` + `is_valid_addr_range`, `memcpy(min(guest size, sizeof))`

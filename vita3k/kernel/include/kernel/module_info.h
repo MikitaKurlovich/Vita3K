@@ -26,18 +26,29 @@
 #include <cstring>
 #include <string>
 
+enum class ModuleInfoOffsetKind {
+    Start,
+    ExclusiveEnd
+};
+
 // sce_module_info stores EXIDX/EXTAB as offsets from the module_info segment,
 // same as module_start/tls_start. Sentinel is only 0xffffffff; offset 0 is a
 // valid table at the start of the segment (vitasdk sce_module_info_raw).
-inline Address relocate_module_info_offset(uint32_t offset, Address seg_base, uint64_t seg_size) {
+// Exclusive-end fields may equal seg_size (one-past-last); start may not.
+inline Address relocate_module_info_offset(uint32_t offset, Address seg_base, uint64_t seg_size,
+    ModuleInfoOffsetKind kind = ModuleInfoOffsetKind::Start) {
     if (offset == 0xffffffff)
         return 0;
-    if (offset >= seg_size) {
+    const bool oob = (kind == ModuleInfoOffsetKind::ExclusiveEnd) ? (offset > seg_size) : (offset >= seg_size);
+    if (oob) {
         LOG_ERROR("[EHABI] module_info offset 0x{:08X} out of segment 0x{:08X}+0x{:X} hint=\"C++ throw in this module will terminate; run with --dump-elfs and attach log\"",
             offset, seg_base, seg_size);
         return 0;
     }
-    return seg_base + offset;
+    const uint64_t va = static_cast<uint64_t>(seg_base) + offset;
+    if (va > 0xffffffffull)
+        return 0;
+    return static_cast<Address>(va);
 }
 
 struct EhabiRange {
@@ -78,14 +89,16 @@ inline bool module_contains_addr(const SceKernelModuleInfo &info, Address addr) 
 }
 
 // PT_ARM_EXIDX.p_vaddr is a VA in the original ELF, not an offset from the
-// module_info segment. Map through the PT_LOAD that owns that p_vaddr.
+// module_info segment. Map through the PT_LOAD that owns the whole table.
 inline Address exidx_from_phdr(Address p_vaddr, uint32_t p_filesz, const SegmentInfosForReloc &segments, Address *end_out = nullptr) {
     if (end_out)
         *end_out = 0;
     if (!p_vaddr || p_filesz == 0)
         return 0;
+    const uint64_t table_end = static_cast<uint64_t>(p_vaddr) + p_filesz;
     for (const auto &[_, seg] : segments) {
-        if (p_vaddr >= seg.p_vaddr && p_vaddr < seg.p_vaddr + seg.size) {
+        const uint64_t seg_end = static_cast<uint64_t>(seg.p_vaddr) + seg.size;
+        if (p_vaddr >= seg.p_vaddr && table_end <= seg_end) {
             const Address top = seg.addr + (p_vaddr - seg.p_vaddr);
             if (end_out)
                 *end_out = top + p_filesz;
@@ -99,17 +112,29 @@ inline uint32_t clamped_module_info_copy_size(uint32_t guest_size) {
     return std::min(guest_size, static_cast<uint32_t>(sizeof(SceKernelModuleInfo)));
 }
 
+// size == 0 means the guest did not fill the Sony size field; copy the full
+// host struct (old GetModuleInfoByAddr behaviour) so EXIDX is not silently zero.
+inline uint32_t effective_module_info_copy_size(uint32_t guest_size) {
+    if (guest_size == 0)
+        return static_cast<uint32_t>(sizeof(SceKernelModuleInfo));
+    return clamped_module_info_copy_size(guest_size);
+}
+
+inline bool guest_range_fits32(Address start, uint32_t len) {
+    return static_cast<uint64_t>(start) + len <= 0x100000000ull;
+}
+
 // Copy host module info into a guest SceKernelModuleInfo. src == nullptr means
 // the lookup failed (NOENT) after the pointer/range checks.
 inline int copy_module_info_to_guest(const SceKernelModuleInfo *src, Address info_va, MemState &mem) {
     if (!info_va)
         return SCE_KERNEL_ERROR_ILLEGAL_ADDR;
-    if (!is_valid_addr_range(mem, info_va, info_va + sizeof(SceSize)))
+    if (!guest_range_fits32(info_va, sizeof(SceSize)) || !is_valid_addr_range(mem, info_va, info_va + sizeof(SceSize)))
         return SCE_KERNEL_ERROR_ILLEGAL_ADDR;
 
     const uint32_t guest_size = *Ptr<SceSize>(info_va).get(mem);
-    const uint32_t n = clamped_module_info_copy_size(guest_size);
-    if (n != 0 && !is_valid_addr_range(mem, info_va, info_va + n))
+    const uint32_t n = effective_module_info_copy_size(guest_size);
+    if (n != 0 && (!guest_range_fits32(info_va, n) || !is_valid_addr_range(mem, info_va, info_va + n)))
         return SCE_KERNEL_ERROR_ILLEGAL_ADDR;
     if (!src)
         return SCE_KERNEL_ERROR_MODULEMGR_NOENT;
