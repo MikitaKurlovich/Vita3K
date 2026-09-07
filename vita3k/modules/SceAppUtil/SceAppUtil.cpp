@@ -190,8 +190,6 @@ EXPORT(SceInt32, sceAppUtilDrmOpen, const SceAppUtilDrmAddcontId *dirName, const
 
 EXPORT(int, sceAppUtilInit, SceAppUtilInitParam *initParam, SceAppUtilBootParam *bootParam) {
     TRACY_FUNC(sceAppUtilInit, initParam, bootParam);
-    if (bootParam)
-        std::memset(bootParam, 0, sizeof(*bootParam));
     STUBBED("AppUtil marked initialized; caller workBufSize preserved");
     return 0;
 }
