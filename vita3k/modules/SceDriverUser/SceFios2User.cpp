@@ -30,7 +30,8 @@
 TRACY_MODULE_NAME(SceFios2User);
 
 enum SceFiosErrorCode {
-    SCE_FIOS_OK = 0
+    SCE_FIOS_OK = 0,
+    SCE_FIOS_ERROR_INVALID = static_cast<int>(0x80420005)
 };
 
 typedef SceUID SceFiosOverlayID;
@@ -61,9 +62,14 @@ EXPORT(int, sceFiosOverlayAddForProcess02, SceUID processId, SceFiosProcessOverl
     return SCE_FIOS_OK;
 }
 
-EXPORT(int, sceFiosOverlayGetInfoForProcess02) {
-    TRACY_FUNC(sceFiosOverlayGetInfoForProcess02);
-    return UNIMPLEMENTED();
+EXPORT(int, sceFiosOverlayGetInfoForProcess02, SceUID processId, SceFiosOverlayID id, SceFiosProcessOverlay *pOverlay) {
+    TRACY_FUNC(sceFiosOverlayGetInfoForProcess02, processId, id, pOverlay);
+    (void)processId;
+    if (!pOverlay)
+        return RET_ERROR(SCE_FIOS_ERROR_INVALID);
+    if (!get_overlay(emuenv.io, id, pOverlay))
+        return RET_ERROR(SCE_FIOS_ERROR_INVALID);
+    return SCE_FIOS_OK;
 }
 
 EXPORT(int, sceFiosOverlayGetList02, SceUID processId, uint32_t minOrder, uint32_t maxOrder, SceFiosOverlayID *pOutIDs, SceUInt32 maxIDs, SceUInt32 *pActualIDs) {
@@ -98,19 +104,24 @@ EXPORT(int, sceFiosOverlayGetRecommendedScheduler02, int param1, const char *pat
     return memcmp(path, "host", 4) == 0 && path[4] <= '9' && path[5] == ':';
 }
 
-EXPORT(int, sceFiosOverlayModifyForProcess02) {
-    TRACY_FUNC(sceFiosOverlayModifyForProcess02);
-    return UNIMPLEMENTED();
+EXPORT(int, sceFiosOverlayModifyForProcess02, SceUID processId, SceFiosOverlayID id, SceFiosProcessOverlay *pOverlay) {
+    TRACY_FUNC(sceFiosOverlayModifyForProcess02, processId, id, pOverlay);
+    (void)processId;
+    if (!pOverlay)
+        return RET_ERROR(SCE_FIOS_ERROR_INVALID);
+    if (pOverlay->type != SCE_FIOS_OVERLAY_TYPE_OPAQUE)
+        LOG_WARN("Using unimplemented overlay type {}.", fmt::underlying(pOverlay->type));
+    if (!modify_overlay(emuenv.io, id, pOverlay))
+        return RET_ERROR(SCE_FIOS_ERROR_INVALID);
+    return SCE_FIOS_OK;
 }
 
-EXPORT(int, sceFiosOverlayRemoveForProcess02) {
-    TRACY_FUNC(sceFiosOverlayRemoveForProcess02);
-    return UNIMPLEMENTED();
-}
-
-EXPORT(int, sceFiosOverlayResolveSync02) {
-    TRACY_FUNC(sceFiosOverlayResolveSync02);
-    return UNIMPLEMENTED();
+EXPORT(int, sceFiosOverlayRemoveForProcess02, SceUID processId, SceFiosOverlayID id) {
+    TRACY_FUNC(sceFiosOverlayRemoveForProcess02, processId, id);
+    (void)processId;
+    if (!remove_overlay(emuenv.io, id))
+        return RET_ERROR(SCE_FIOS_ERROR_INVALID);
+    return SCE_FIOS_OK;
 }
 
 EXPORT(int, sceFiosOverlayResolveWithRangeSync02, SceUID processId, SceFiosOverlayResolveMode resolveFlag, const char *pInPath, char *pOutPath, SceUInt32 maxPath, SceUInt32 min_order, SceUInt32 max_order) {
@@ -135,6 +146,11 @@ EXPORT(int, sceFiosOverlayResolveWithRangeSync02, SceUID processId, SceFiosOverl
         thread_id, disabled ? 1 : 0, pInPath ? pInPath : "", pOutPath ? pOutPath : "");
 
     return SCE_FIOS_OK;
+}
+
+EXPORT(int, sceFiosOverlayResolveSync02, SceUID processId, SceFiosOverlayResolveMode resolveFlag, const char *pInPath, char *pOutPath, SceUInt32 maxPath) {
+    TRACY_FUNC(sceFiosOverlayResolveSync02, processId, resolveFlag, pInPath, pOutPath, maxPath);
+    return CALL_EXPORT(sceFiosOverlayResolveWithRangeSync02, processId, resolveFlag, pInPath, pOutPath, maxPath, 0u, 0x7Fu);
 }
 
 EXPORT(int, sceFiosOverlayThreadIsDisabled02) {

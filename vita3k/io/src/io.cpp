@@ -37,6 +37,7 @@
 #endif
 
 #include <cassert>
+#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <string>
@@ -870,6 +871,27 @@ static std::string standardize_path(std::string_view path) {
         return std::string(path);
 }
 
+static void insert_overlay_sorted(IOState &io, FiosOverlay overlay) {
+    // lower order first; equal order keeps the newest insertion first
+    size_t overlay_index = 0;
+    while (overlay_index < io.overlays.size() && overlay.order < io.overlays[overlay_index].order)
+        overlay_index++;
+    io.overlays.insert(io.overlays.begin() + overlay_index, std::move(overlay));
+}
+
+static void fill_process_overlay(const FiosOverlay &overlay, SceFiosProcessOverlay *out) {
+    std::memset(out, 0, sizeof(*out));
+    out->type = overlay.type;
+    out->order = overlay.order;
+    out->process_id = overlay.process_id;
+    std::strncpy(out->dst, overlay.dst.c_str(), SCE_FIOS_OVERLAY_POINT_MAX - 1);
+    std::strncpy(out->src, overlay.src.c_str(), SCE_FIOS_OVERLAY_POINT_MAX - 1);
+    out->dst[SCE_FIOS_OVERLAY_POINT_MAX - 1] = '\0';
+    out->src[SCE_FIOS_OVERLAY_POINT_MAX - 1] = '\0';
+    out->dst_size = static_cast<int16_t>(std::strlen(out->dst));
+    out->src_size = static_cast<int16_t>(std::strlen(out->src));
+}
+
 SceUID create_overlay(IOState &io, SceFiosProcessOverlay *fios_overlay) {
     std::lock_guard<std::mutex> lock(io.overlay_mutex);
 
@@ -882,15 +904,49 @@ SceUID create_overlay(IOState &io, SceFiosProcessOverlay *fios_overlay) {
         .src = standardize_path(fios_overlay->src)
     };
 
-    // find location where to put it
-    size_t overlay_index = 0;
-    // lower order first and in case of equality, last one inserted first
-    while (overlay_index < io.overlays.size() && overlay.order < io.overlays[overlay_index].order)
-        overlay_index++;
-    auto res = overlay.id;
-    io.overlays.insert(io.overlays.begin() + overlay_index, std::move(overlay));
-
+    const auto res = overlay.id;
+    insert_overlay_sorted(io, std::move(overlay));
     return res;
+}
+
+bool get_overlay(IOState &io, SceUID id, SceFiosProcessOverlay *out) {
+    std::lock_guard<std::mutex> lock(io.overlay_mutex);
+    for (const auto &overlay : io.overlays) {
+        if (overlay.id != id)
+            continue;
+        fill_process_overlay(overlay, out);
+        return true;
+    }
+    return false;
+}
+
+bool modify_overlay(IOState &io, SceUID id, const SceFiosProcessOverlay *in) {
+    std::lock_guard<std::mutex> lock(io.overlay_mutex);
+    for (size_t i = 0; i < io.overlays.size(); i++) {
+        if (io.overlays[i].id != id)
+            continue;
+        FiosOverlay updated = io.overlays[i];
+        io.overlays.erase(io.overlays.begin() + i);
+        updated.type = in->type;
+        updated.order = in->order;
+        updated.process_id = in->process_id;
+        updated.dst = standardize_path(in->dst);
+        updated.src = standardize_path(in->src);
+        insert_overlay_sorted(io, std::move(updated));
+        return true;
+    }
+    return false;
+}
+
+bool remove_overlay(IOState &io, SceUID id) {
+    std::lock_guard<std::mutex> lock(io.overlay_mutex);
+    for (size_t i = 0; i < io.overlays.size(); i++) {
+        if (io.overlays[i].id != id)
+            continue;
+        io.overlays.erase(io.overlays.begin() + i);
+        return true;
+    }
+    return false;
 }
 
 std::string resolve_path(IOState &io, const char *input, const SceUInt32 min_order, const SceUInt32 max_order) {
