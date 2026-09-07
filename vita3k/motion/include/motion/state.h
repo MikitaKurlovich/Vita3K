@@ -54,6 +54,7 @@ struct MotionState {
 
     bool has_device_motion_support = false;
     bool is_sampling = false;
+    bool is_magnetometer_sampling = false;
 
     void init();
     void clear_device_motion_support();

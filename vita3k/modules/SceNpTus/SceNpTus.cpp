@@ -17,6 +17,8 @@
 
 #include <module/module.h>
 
+#include <kernel/state.h>
+
 enum SceNpCommunityServerErrorCode : uint32_t {
     SCE_NP_COMMUNITY_SERVER_ERROR_BAD_REQUEST = 0x80550801,
     SCE_NP_COMMUNITY_SERVER_ERROR_INVALID_TICKET = 0x80550802,
@@ -136,7 +138,7 @@ EXPORT(int, sceNpTssGetStorageAsync) {
 }
 
 EXPORT(int, sceNpTusAbortRequest) {
-    return UNIMPLEMENTED();
+    return 0;
 }
 
 EXPORT(int, sceNpTusAddAndGetVariable) {
@@ -159,12 +161,17 @@ EXPORT(int, sceNpTusChangeModeForOtherSaveDataOwners) {
     return UNIMPLEMENTED();
 }
 
-EXPORT(int, sceNpTusCreateRequest) {
-    return UNIMPLEMENTED();
+EXPORT(int, sceNpTusCreateRequest, int titleCtxId) {
+    if (titleCtxId <= 0)
+        return SCE_NP_COMMUNITY_ERROR_INVALID_ID;
+    return emuenv.kernel.get_next_uid();
 }
 
-EXPORT(int, sceNpTusCreateTitleCtx) {
-    return UNIMPLEMENTED();
+EXPORT(int, sceNpTusCreateTitleCtx, const void *communicationId, const void *passphrase, const void *signature) {
+    if (!communicationId)
+        return SCE_NP_COMMUNITY_ERROR_INVALID_ARGUMENT;
+    // Offline handle. Returning 0 (UNIMPLEMENTED) made Hotline Miami deref NULL at 0x81666b2a.
+    return emuenv.kernel.get_next_uid();
 }
 
 EXPORT(int, sceNpTusDeleteMultiSlotData) {
@@ -200,11 +207,11 @@ EXPORT(int, sceNpTusDeleteMultiSlotVariableVUserAsync) {
 }
 
 EXPORT(int, sceNpTusDeleteRequest) {
-    return UNIMPLEMENTED();
+    return 0;
 }
 
 EXPORT(int, sceNpTusDeleteTitleCtx) {
-    return UNIMPLEMENTED();
+    return 0;
 }
 
 EXPORT(int, sceNpTusGetData) {
@@ -304,11 +311,11 @@ EXPORT(int, sceNpTusGetMultiUserVariableVUserAsync) {
 }
 
 EXPORT(int, sceNpTusInit) {
-    return UNIMPLEMENTED();
+    return 0;
 }
 
 EXPORT(int, sceNpTusPollAsync) {
-    return UNIMPLEMENTED();
+    return SCE_NP_COMMUNITY_ERROR_NO_LOGIN;
 }
 
 EXPORT(int, sceNpTusSetData) {
@@ -348,7 +355,7 @@ EXPORT(int, sceNpTusSetTimeout) {
 }
 
 EXPORT(int, sceNpTusTerm) {
-    return UNIMPLEMENTED();
+    return 0;
 }
 
 EXPORT(int, sceNpTusTryAndSetVariable) {
@@ -368,5 +375,5 @@ EXPORT(int, sceNpTusTryAndSetVariableVUserAsync) {
 }
 
 EXPORT(int, sceNpTusWaitAsync) {
-    return UNIMPLEMENTED();
+    return SCE_NP_COMMUNITY_ERROR_NO_LOGIN;
 }

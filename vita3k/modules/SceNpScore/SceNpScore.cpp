@@ -17,6 +17,8 @@
 
 #include <module/module.h>
 
+#include <kernel/state.h>
+
 EXPORT(int, sceNpScoreAbortRequest) {
     return UNIMPLEMENTED();
 }
@@ -33,20 +35,24 @@ EXPORT(int, sceNpScoreChangeModeForOtherSaveDataOwners) {
     return UNIMPLEMENTED();
 }
 
-EXPORT(int, sceNpScoreCreateRequest) {
-    return UNIMPLEMENTED();
+EXPORT(int, sceNpScoreCreateRequest, int titleCtxId) {
+    if (titleCtxId <= 0)
+        return -1;
+    return emuenv.kernel.get_next_uid();
 }
 
-EXPORT(int, sceNpScoreCreateTitleCtx) {
-    return UNIMPLEMENTED();
+EXPORT(int, sceNpScoreCreateTitleCtx, const void *communicationId, const void *passphrase, const void *signature) {
+    if (!communicationId)
+        return -1;
+    return emuenv.kernel.get_next_uid();
 }
 
 EXPORT(int, sceNpScoreDeleteRequest) {
-    return UNIMPLEMENTED();
+    return 0;
 }
 
 EXPORT(int, sceNpScoreDeleteTitleCtx) {
-    return UNIMPLEMENTED();
+    return 0;
 }
 
 EXPORT(int, sceNpScoreGetBoardInfo) {
@@ -98,7 +104,7 @@ EXPORT(int, sceNpScoreGetRankingByRangeAsync) {
 }
 
 EXPORT(int, sceNpScoreInit) {
-    return UNIMPLEMENTED();
+    return 0;
 }
 
 EXPORT(int, sceNpScorePollAsync) {

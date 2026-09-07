@@ -132,6 +132,7 @@ void MotionState::start_sensor_sampling() {
 
 void MotionState::reset_runtime() {
     stop_sensor_sampling();
+    is_magnetometer_sampling = false;
     motion_data.ResetQuaternion();
     motion_data.ResetRotations();
     last_counter = 0;

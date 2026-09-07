@@ -1100,9 +1100,30 @@ EXPORT(int, sceKernelBacktrace) {
     return UNIMPLEMENTED();
 }
 
-EXPORT(int, sceKernelBacktraceSelf) {
-    TRACY_FUNC(sceKernelBacktraceSelf);
-    return UNIMPLEMENTED();
+struct SceKernelCallFrame {
+    Address stack_pointer;
+    Address program_counter;
+};
+
+EXPORT(int, sceKernelBacktraceSelf, SceKernelCallFrame *frames, SceSize frame_buffer_size, SceUInt32 *num_frames, SceUInt32 flags) {
+    TRACY_FUNC(sceKernelBacktraceSelf, frames, frame_buffer_size, num_frames, flags);
+    if (!num_frames)
+        return RET_ERROR(SCE_KERNEL_ERROR_ILLEGAL_ADDR);
+
+    *num_frames = 0;
+    if (!frames || frame_buffer_size < sizeof(SceKernelCallFrame))
+        return RET_ERROR(SCE_KERNEL_ERROR_INVALID_ARGUMENT_SIZE);
+
+    const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
+    if (!thread || !thread->cpu)
+        return RET_ERROR(SCE_KERNEL_ERROR_INVALID_ARGUMENT);
+
+    // Report the caller of this HLE import. Further frames require EHABI unwinding;
+    // one exact frame is preferable to fabricated stack scanning.
+    frames[0].stack_pointer = read_sp(*thread->cpu);
+    frames[0].program_counter = read_lr(*thread->cpu);
+    *num_frames = 1;
+    return 0;
 }
 
 EXPORT(int, sceKernelCallModuleExit) {

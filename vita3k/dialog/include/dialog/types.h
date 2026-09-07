@@ -231,6 +231,30 @@ struct SceCommonDialogParam {
     SceUInt32 magic;
 };
 
+struct SceCommonDialogConfigParam {
+    SceUInt32 sdkVersion;
+    SceInt32 language;
+    SceInt32 enterButtonAssign;
+    SceUInt8 reserved[32];
+};
+
+struct SceCommonDialogRenderTargetInfo {
+    Ptr<void> depthSurfaceData;
+    Ptr<void> colorSurfaceData;
+    SceUInt32 surfaceType;
+    SceUInt32 colorFormat;
+    SceUInt32 width;
+    SceUInt32 height;
+    SceUInt32 strideInPixels;
+    SceUInt8 reserved[32];
+};
+
+struct SceCommonDialogUpdateParam {
+    SceCommonDialogRenderTargetInfo renderTarget;
+    Ptr<void> displaySyncObject;
+    SceUInt8 reserved[32];
+};
+
 struct SceImeDialogParam {
     SceUInt32 sdkVersion;
 

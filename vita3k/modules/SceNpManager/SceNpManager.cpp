@@ -75,7 +75,7 @@ EXPORT(int, sceNpCheckCallback) {
         thread->run_callback(np_callback.pc, { static_cast<uint32_t>(state), 0, np_callback.data });
     }
 
-    return STUBBED("Stub");
+    return 0;
 }
 
 EXPORT(int, sceNpGetServiceState, SceNpServiceState *state) {
@@ -118,9 +118,11 @@ EXPORT(int, sceNpManagerGetChatRestrictionFlag, SceInt *isRestricted) {
 
 EXPORT(int, sceNpManagerGetContentRatingFlag, SceInt *isRestricted, SceInt *age) {
     TRACY_FUNC(sceNpManagerGetContentRatingFlag, isRestricted, age);
-    *isRestricted = 0; // User is never restricted
-    *age = 21; // Assume user is 21 years old
-    return STUBBED("isRestricted = 0; age = 21; return 0;");
+    if (!isRestricted || !age)
+        return SCE_NP_ERROR_INVALID_ARGUMENT;
+    *isRestricted = 0;
+    *age = 21;
+    return 0;
 }
 
 EXPORT(int, sceNpManagerGetNpId, np::SceNpId *id) {

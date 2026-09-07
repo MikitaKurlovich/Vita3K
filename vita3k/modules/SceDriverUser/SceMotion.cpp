@@ -67,7 +67,8 @@ EXPORT(SceBool, sceMotionGetGyroBiasCorrection) {
 
 EXPORT(SceBool, sceMotionGetMagnetometerState) {
     TRACY_FUNC(sceMotionGetMagnetometerState);
-    return UNIMPLEMENTED();
+    std::lock_guard<std::mutex> guard(emuenv.motion.mutex);
+    return emuenv.motion.is_magnetometer_sampling ? SCE_TRUE : SCE_FALSE;
 }
 
 EXPORT(int, sceMotionGetSensorState, SceMotionSensorState *sensorState, int numRecords) {
@@ -189,12 +190,16 @@ EXPORT(int, sceMotionInitLibraryExt) {
 
 EXPORT(int, sceMotionMagnetometerOff) {
     TRACY_FUNC(sceMotionMagnetometerOff);
-    return UNIMPLEMENTED();
+    std::lock_guard<std::mutex> guard(emuenv.motion.mutex);
+    emuenv.motion.is_magnetometer_sampling = false;
+    return SCE_MOTION_OK;
 }
 
 EXPORT(int, sceMotionMagnetometerOn) {
     TRACY_FUNC(sceMotionMagnetometerOn);
-    return UNIMPLEMENTED();
+    std::lock_guard<std::mutex> guard(emuenv.motion.mutex);
+    emuenv.motion.is_magnetometer_sampling = true;
+    return SCE_MOTION_OK;
 }
 
 EXPORT(int, sceMotionReset) {

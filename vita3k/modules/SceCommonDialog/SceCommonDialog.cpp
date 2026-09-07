@@ -32,6 +32,7 @@
 
 #include <SDL3/SDL_timer.h>
 
+#include <cstring>
 #include <mutex>
 
 #ifdef __ANDROID__
@@ -110,17 +111,32 @@ EXPORT(int, sceCommonDialogGetWorkerThreadId) {
 
 EXPORT(int, sceCommonDialogIsRunning) {
     TRACY_FUNC(sceCommonDialogIsRunning);
-    return UNIMPLEMENTED();
+    return (emuenv.common_dialog.status == SCE_COMMON_DIALOG_STATUS_RUNNING) ? SCE_TRUE : SCE_FALSE;
 }
 
-EXPORT(int, sceCommonDialogSetConfigParam) {
-    TRACY_FUNC(sceCommonDialogSetConfigParam);
-    return UNIMPLEMENTED();
+EXPORT(int, sceCommonDialogSetConfigParam, const SceCommonDialogConfigParam *configParam) {
+    TRACY_FUNC(sceCommonDialogSetConfigParam, configParam);
+    if (!configParam)
+        return RET_ERROR(SCE_COMMON_DIALOG_ERROR_NULL);
+    return 0;
 }
 
-EXPORT(int, sceCommonDialogUpdate) {
-    TRACY_FUNC(sceCommonDialogUpdate);
-    return UNIMPLEMENTED();
+EXPORT(int, sceCommonDialogUpdate, const SceCommonDialogUpdateParam *updateParam) {
+    TRACY_FUNC(sceCommonDialogUpdate, updateParam);
+    if (!updateParam)
+        return RET_ERROR(SCE_COMMON_DIALOG_ERROR_NULL);
+
+    // Sony draws the system dialog onto this GXM target each frame. Vita3K's overlay
+    // already composites host-side; we still have to advance status here, or games
+    // that wait on Update (Hotline Miami netcheck) stay on the loading screen.
+    if (emuenv.common_dialog.type == NETCHECK_DIALOG
+        && emuenv.common_dialog.netcheck.mode != SCE_NETCHECK_DIALOG_MODE_ADHOC_CONN
+        && emuenv.common_dialog.status == SCE_COMMON_DIALOG_STATUS_RUNNING) {
+        emuenv.common_dialog.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
+        emuenv.common_dialog.result = SCE_COMMON_DIALOG_RESULT_OK;
+    }
+
+    return 0;
 }
 
 EXPORT(int, sceCompanionUtilDialogAbort) {
@@ -560,11 +576,15 @@ EXPORT(int, sceNetCheckDialogGetPS3ConnectInfo) {
 
 EXPORT(int, sceNetCheckDialogGetResult, SceNetCheckDialogResult *result) {
     TRACY_FUNC(sceNetCheckDialogGetResult, result);
+    if (!result)
+        return RET_ERROR(SCE_COMMON_DIALOG_ERROR_NULL);
+    if (emuenv.common_dialog.type != NETCHECK_DIALOG)
+        return RET_ERROR(SCE_COMMON_DIALOG_ERROR_NOT_IN_USE);
+
+    // Only the two documented fields. memset of reserved[124] smashed Hotline's stack
+    // (r1 showed the 0x0DEADBEE canary) when the game passed a tighter local.
     result->result = emuenv.common_dialog.result;
-
-    if (emuenv.common_dialog.netcheck.mode != SCE_NETCHECK_DIALOG_MODE_ADHOC_CONN)
-        STUBBED("result->result = 0");
-
+    result->psnModeSucceeded = (emuenv.common_dialog.result == SCE_COMMON_DIALOG_RESULT_OK) ? SCE_TRUE : SCE_FALSE;
     return 0;
 }
 
@@ -572,15 +592,13 @@ EXPORT(SceCommonDialogStatus, sceNetCheckDialogGetStatus) {
     TRACY_FUNC(sceNetCheckDialogGetStatus);
     if (emuenv.common_dialog.type != NETCHECK_DIALOG)
         return SCE_COMMON_DIALOG_STATUS_NONE;
-
-    if (emuenv.common_dialog.netcheck.mode != SCE_NETCHECK_DIALOG_MODE_ADHOC_CONN)
-        STUBBED("SCE_COMMON_DIALOG_STATUS_FINISHED");
-
     return emuenv.common_dialog.status;
 }
 
 EXPORT(int, sceNetCheckDialogInit, const SceNetCheckDialogParam *param) {
     TRACY_FUNC(sceNetCheckDialogInit);
+    if (!param)
+        return RET_ERROR(SCE_COMMON_DIALOG_ERROR_NULL);
     if (emuenv.common_dialog.type != NO_DIALOG)
         return RET_ERROR(SCE_COMMON_DIALOG_ERROR_BUSY);
 
@@ -601,7 +619,7 @@ EXPORT(int, sceNetCheckDialogInit, const SceNetCheckDialogParam *param) {
         break;
     }
 
-    return UNIMPLEMENTED();
+    return 0;
 }
 
 EXPORT(int, sceNetCheckDialogTerm) {
@@ -609,7 +627,7 @@ EXPORT(int, sceNetCheckDialogTerm) {
     emuenv.common_dialog.status = SCE_COMMON_DIALOG_STATUS_NONE;
     emuenv.common_dialog.type = NO_DIALOG;
     emuenv.common_dialog.netcheck.mode = SCE_NETCHECK_DIALOG_MODE_INVALID;
-    return UNIMPLEMENTED();
+    return 0;
 }
 
 EXPORT(int, sceNpFriendList2DialogAbort) {

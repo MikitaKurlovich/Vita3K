@@ -23,13 +23,20 @@
 #include <renderer/state.h>
 #include <util/tracy.h>
 
+#include <algorithm>
+#include <cstring>
+
 TRACY_MODULE_NAME(SceAppMgr);
 
 EXPORT(SceInt32, __sceAppMgrGetAppState, SceAppMgrAppState *appState, SceUInt32 sizeofSceAppMgrAppState, SceUInt32 buildVersion) {
     TRACY_FUNC(__sceAppMgrGetAppState, appState, sizeofSceAppMgrAppState, buildVersion);
-    memset(appState, 0, sizeofSceAppMgrAppState);
+    if (!appState || sizeofSceAppMgrAppState == 0)
+        return RET_ERROR(SCE_APPMGR_ERROR_INVALID_PARAMETER);
 
-    return STUBBED("Set to 0.");
+    // Zero event counts and isSystemUiOverlaid: no pending system/app events, no LiveArea overlay.
+    const SceUInt32 n = std::min(sizeofSceAppMgrAppState, static_cast<SceUInt32>(sizeof(SceAppMgrAppState)));
+    memset(appState, 0, n);
+    return 0;
 }
 
 EXPORT(int, _sceAppMgrAcidDirSet) {
