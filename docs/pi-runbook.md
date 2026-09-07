@@ -9,8 +9,11 @@ Binary lives at `/userdata/system/vita3k/squashfs-root/usr/bin/Vita3K`. Qt 6.11 
 3. `make deploy PI=<host>` copies the current binary to a `Vita3K.bak-<short-hash>` next to it, then scp's the new file and `sync`. It will not write `bak-4074`.
 4. Smoke, five minutes: start Papers, Please (PCSE01056) New Game. In `/userdata/system/cache/Vita3K/vita3k.log` you want:
    - banner with git hash and branch (unofficial build) plus `log-ehabi=`
-   - `grep -E '\[EHABI\] module=(eboot|libc)'` shows `relocated=yes` for both
+   - `grep '\[EHABI\] module='` shows `relocated=yes` for Main and SceLibc
+   - `grep unwind-bind` shows `remaining-svc=0` after `libc.suprx` (WARN before libc is gone; that was a false positive)
    - first traveler: no `guest abort dump` and no `hle __cxa_throw reached`
+   - throw path: `GetModuleInfoByAddr` for SceLibc (`0x80353F67`) then Main (`0x81157991`), `seg0_perms` bit 0 set
+   - proven 2026-09-07 on Pi (New Game). Remaining hardware: Continue/#3047, touch, campaign. See `docs/pcse01056-plan.md`.
 5. Rollback: `make rollback PI=<host> TAG=4074` restores `Vita3K.bak-4074`.
 6. Extra diagnostics: add `--log-ehabi --dump-abort-state --dump-elfs` to the EmulationStation command (or set the same keys in `config.yml`). Host tests: `make test` (`ctest -R 'kernel|util'`). Pi Docker builds with `BUILD_TESTING=OFF`.
 
@@ -21,15 +24,16 @@ Binary lives at `/userdata/system/vita3k/squashfs-root/usr/bin/Vita3K`. Qt 6.11 
 Need all of:
 
 - `[EHABI] ... relocated=yes` for eboot and `libc.suprx`
-- no `still svc stub` WARN on `__cxa_throw` / `__cxa_rethrow` / `__snc_personality_v0` / `_Unwind_*` / `__aeabi_unwind*`
+- `[EHABI] unwind-bind remaining-svc=0` after libc (no `still svc stub` WARN after that line)
 - no `[EHABI] hle __cxa_throw reached`
 
-Static check on a `--dump-elfs` image:
+Static check on a `--dump-elfs` image (SELF often has no PT_ARM_EXIDX; the script reads `sce_module_info`):
 
 ```
-python3 tools/exidx_check.py 0x81000000-..._eboot.elf --expect-exidx
+python3 tools/exidx_check.py /path/to/eboot.elf --expect-exidx --pc 0x81157993
+python3 tools/exidx_check.py /path/to/libc.elf --expect-exidx --pc 0x80353F1D
 ```
 
 ## Hardware still required
 
-New Game, save freeze (#3047), touch/drag-and-drop, campaign/trophies. This runbook does not fake those results.
+First traveler (New Game) is done. Still needed on device: save freeze (#3047), touch/drag-and-drop, campaign/trophies. Details: `docs/pcse01056-plan.md`.

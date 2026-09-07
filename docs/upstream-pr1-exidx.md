@@ -10,7 +10,8 @@ This change:
 - drops degenerate pairs (`end-top < 8`, including old-SDK fake `(0,1)` from vita-toolchain `sce-elf.c`)
 - maps `PT_ARM_EXIDX` via original `p_vaddr` of the owning PT_LOAD (`p_vaddr == 0` is valid for relocatable ELF; missing phdr is `p_filesz == 0`)
 - on phdr vs module_info mismatch, prefers the normalized PT_ARM_EXIDX range (`source=phdr-preferred`)
-- copies `SceKernelModuleInfo` under one `kernel.mutex` lock (`copy_module_info_by_addr`), `Ptr<>` + `is_valid_addr_range`, `memcpy(min(guest size, sizeof))`; if the guest size field is non-zero it is restored after the copy
+- copies `SceKernelModuleInfo` under one `kernel.mutex` lock (`copy_module_info_by_addr`), `Ptr<>` + `is_valid_addr_range`; `GetModuleInfoByAddr` copies the full 0x1B8 struct when the guest buffer fits (Sony libc does not store `info.size` before the call)
+- fills `SceKernelSegmentInfo.perms` from ELF `p_flags` (libc Find_exidx caches EXIDX only for `perms & 1`)
 - uses a strict upper bound `addr < vaddr+memsz` in `find_module_by_addr`
 
 EHABI: ARM IHI0038 §5 (8-byte EXIDX entries).

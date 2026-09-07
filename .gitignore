@@ -22,6 +22,9 @@ appimage/linuxdeploy*.AppImage
 # generated linux metainfo.xml
 dist/linux/*.metainfo.xml
 
+# aarch64 Pi packages from `make package` (do not commit the binary)
+dist/linux-arm64/
+
 # Built application files
 *.apk
 *.ap_
