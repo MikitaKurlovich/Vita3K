@@ -51,6 +51,10 @@ TEST(relocate_module_info_offset, last_byte_of_segment) {
     EXPECT_EQ(relocate_module_info_offset(0xfff, 0x81000000, 0x1000), 0x81000fffu);
 }
 
+TEST(relocate_module_info_offset, va_overflow) {
+    EXPECT_EQ(relocate_module_info_offset(0x20, 0xFFFFFFF0, 0x100), 0u);
+}
+
 TEST(normalize_ehabi_range, both_null) {
     const EhabiRange r = normalize_ehabi_range(0, 0);
     EXPECT_EQ(r.top, 0u);
@@ -142,6 +146,20 @@ TEST(exidx_from_phdr, table_past_segment_rejected) {
     EXPECT_EQ(end, 0u);
 }
 
+TEST(exidx_from_phdr, relocatable_p_vaddr_zero) {
+    SegmentInfosForReloc segs;
+    segs[0] = SegmentInfoForReloc{ 0x81000000, 0x00000000, 0x20000 };
+    Address end = 0;
+    EXPECT_EQ(exidx_from_phdr(0, 0x80, segs, &end), 0x81000000u);
+    EXPECT_EQ(end, 0x81000080u);
+}
+
+TEST(exidx_from_phdr, filesz_zero_is_missing) {
+    SegmentInfosForReloc segs;
+    segs[0] = SegmentInfoForReloc{ 0x81000000, 0, 0x1000 };
+    EXPECT_EQ(exidx_from_phdr(0, 0, segs, nullptr), 0u);
+}
+
 TEST(exidx_from_phdr, outside_segments) {
     SegmentInfosForReloc segs;
     segs[0] = SegmentInfoForReloc{ 0x81000000, 0x81000000, 0x1000 };
@@ -225,7 +243,7 @@ TEST_F(ModuleInfoCopy, copies_min_guest_size) {
     std::memcpy(src.module_name, "testmod", 8);
 
     EXPECT_EQ(copy_module_info_to_guest(&src, info_va, mem), SCE_KERNEL_OK);
-    EXPECT_EQ(clamped_module_info_copy_size(0x40), 0x40u);
+    EXPECT_EQ(guest->size, 0x40u);
     EXPECT_EQ(Ptr<SceKernelModuleInfo>(info_va).get(mem)->modid, 42);
 }
 
@@ -258,7 +276,7 @@ TEST_F(ModuleInfoCopy, copies_struct_when_guest_size_huge) {
     src.modid = 7;
     EXPECT_EQ(copy_module_info_to_guest(&src, info_va, mem), SCE_KERNEL_OK);
     EXPECT_EQ(guest->modid, 7);
-    EXPECT_EQ(guest->size, sizeof(SceKernelModuleInfo));
+    EXPECT_EQ(guest->size, 0x1000u);
 }
 
 TEST(module_contains_addr, finds_segment) {
@@ -268,4 +286,21 @@ TEST(module_contains_addr, finds_segment) {
     info.segments[0].memsz = 0x1000;
     EXPECT_TRUE(module_contains_addr(info, 0x81000010));
     EXPECT_FALSE(module_contains_addr(info, 0x82000000));
+}
+
+TEST(module_has_loaded_code, placeholder_without_segments) {
+    SceKernelModuleInfo info{};
+    EXPECT_FALSE(module_has_loaded_code(info));
+}
+
+TEST(module_has_loaded_code, loaded_segment) {
+    SceKernelModuleInfo info{};
+    info.segments[0].size = sizeof(SceKernelSegmentInfo);
+    info.segments[0].memsz = 0x1000;
+    EXPECT_TRUE(module_has_loaded_code(info));
+}
+
+TEST(path_basename_is, device_path) {
+    EXPECT_TRUE(path_basename_is("vs0:sys/external/libc.suprx", "libc.suprx"));
+    EXPECT_FALSE(path_basename_is("app0:libc.suprx.bak", "libc.suprx"));
 }

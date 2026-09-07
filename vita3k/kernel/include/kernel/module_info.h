@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <string_view>
 
 enum class ModuleInfoOffsetKind {
     Start,
@@ -46,8 +47,10 @@ inline Address relocate_module_info_offset(uint32_t offset, Address seg_base, ui
         return 0;
     }
     const uint64_t va = static_cast<uint64_t>(seg_base) + offset;
-    if (va > 0xffffffffull)
+    if (va > 0xffffffffull) {
+        LOG_ERROR("[EHABI] module_info offset 0x{:08X} + seg_base 0x{:08X} overflows 32-bit VA", offset, seg_base);
         return 0;
+    }
     return static_cast<Address>(va);
 }
 
@@ -78,6 +81,20 @@ inline bool segment_contains(const SceKernelSegmentInfo &seg, Address addr) {
     return addr >= vaddr && addr < vaddr + seg.memsz;
 }
 
+inline bool module_has_loaded_code(const SceKernelModuleInfo &info) {
+    for (const auto &seg : info.segments) {
+        if (seg.size && seg.memsz)
+            return true;
+    }
+    return false;
+}
+
+inline bool path_basename_is(std::string_view path, std::string_view name) {
+    const auto pos = path.find_last_of("/\\:");
+    const auto base = pos == std::string_view::npos ? path : path.substr(pos + 1);
+    return base == name;
+}
+
 inline bool module_contains_addr(const SceKernelModuleInfo &info, Address addr) {
     for (const auto &seg : info.segments) {
         if (!seg.size)
@@ -90,10 +107,11 @@ inline bool module_contains_addr(const SceKernelModuleInfo &info, Address addr) 
 
 // PT_ARM_EXIDX.p_vaddr is a VA in the original ELF, not an offset from the
 // module_info segment. Map through the PT_LOAD that owns the whole table.
+// p_vaddr == 0 is valid for relocatable ELF (ET_SCE_RELEXEC); missing phdr is filesz == 0.
 inline Address exidx_from_phdr(Address p_vaddr, uint32_t p_filesz, const SegmentInfosForReloc &segments, Address *end_out = nullptr) {
     if (end_out)
         *end_out = 0;
-    if (!p_vaddr || p_filesz == 0)
+    if (p_filesz == 0)
         return 0;
     const uint64_t table_end = static_cast<uint64_t>(p_vaddr) + p_filesz;
     for (const auto &[_, seg] : segments) {
@@ -140,6 +158,9 @@ inline int copy_module_info_to_guest(const SceKernelModuleInfo *src, Address inf
         return SCE_KERNEL_ERROR_MODULEMGR_NOENT;
     if (n != 0)
         std::memcpy(Ptr<uint8_t>(info_va).get(mem), src, n);
+    // Partial copies must not overwrite the guest size field with sizeof(host).
+    if (guest_size != 0)
+        *Ptr<SceSize>(info_va).get(mem) = guest_size;
     return SCE_KERNEL_OK;
 }
 

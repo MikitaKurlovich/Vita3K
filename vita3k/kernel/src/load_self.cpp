@@ -658,6 +658,7 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
 
     Address arm_exidx_p_vaddr = 0;
     uint32_t arm_exidx_filesz = 0;
+    bool have_arm_exidx_phdr = false;
 
     for (Elf_Half seg_index = 0; seg_index < elf.e_phnum; ++seg_index) {
         const Elf32_Phdr &seg_header = segments[seg_index];
@@ -730,8 +731,13 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
             }
         } else if (seg_header.p_type == PT_ARM_EXIDX) {
             // Table lives inside PT_LOAD text; do not allocate. Keep p_vaddr for a cross-check.
-            arm_exidx_p_vaddr = seg_header.p_vaddr;
-            arm_exidx_filesz = seg_header.p_filesz;
+            if (have_arm_exidx_phdr) {
+                LOG_ERROR("[EHABI] extra PT_ARM_EXIDX ignored p_vaddr=0x{:08X} filesz=0x{:X}", seg_header.p_vaddr, seg_header.p_filesz);
+            } else {
+                have_arm_exidx_phdr = true;
+                arm_exidx_p_vaddr = seg_header.p_vaddr;
+                arm_exidx_filesz = seg_header.p_filesz;
+            }
             LOG_INFO("{}: Skipping special segment {}...", self_path, log_hex(seg_header.p_type));
         } else if ((seg_header.p_type == PT_SCE_COMMENT) || (seg_header.p_type == PT_SCE_VERSION)) {
             LOG_INFO("{}: Skipping special segment {}...", self_path, log_hex(seg_header.p_type));
@@ -818,17 +824,18 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
     const EhabiRange extab = normalize_ehabi_range(extab_top_raw, extab_end_raw);
 
     Address phdr_end = 0;
-    const Address phdr_top = exidx_from_phdr(arm_exidx_p_vaddr, arm_exidx_filesz, segment_reloc_info, &phdr_end);
-    if (exidx.top && phdr_top && phdr_top != exidx.top) {
-        LOG_WARN("[EHABI] module={} phdr/module_info EXIDX mismatch phdr=0x{:08X} info=0x{:08X} hint=\"using module_info\"",
-            ehabi_name, phdr_top, exidx.top);
-    }
-    if (!exidx.top && phdr_top) {
-        const EhabiRange from_phdr = normalize_ehabi_range(phdr_top, phdr_end);
-        if (from_phdr.top) {
-            exidx = from_phdr;
-            exidx.reason = "phdr-fallback";
-        }
+    const Address phdr_top = have_arm_exidx_phdr
+        ? exidx_from_phdr(arm_exidx_p_vaddr, arm_exidx_filesz, segment_reloc_info, &phdr_end)
+        : 0;
+    const EhabiRange from_phdr = normalize_ehabi_range(phdr_top, phdr_end);
+    if (exidx.top && from_phdr.top && from_phdr.top != exidx.top) {
+        LOG_WARN("[EHABI] module={} phdr/module_info EXIDX mismatch phdr=0x{:08X} info=0x{:08X} hint=\"using PT_ARM_EXIDX\"",
+            ehabi_name, from_phdr.top, exidx.top);
+        exidx = from_phdr;
+        exidx.reason = "phdr-preferred";
+    } else if (!exidx.top && from_phdr.top) {
+        exidx = from_phdr;
+        exidx.reason = "phdr-fallback";
     }
 
     sceKernelModuleInfo->exidx_top = Ptr<const void>(exidx.top);
@@ -837,9 +844,13 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
     sceKernelModuleInfo->extab_btm = Ptr<const void>(extab.end);
 
     if (exidx.top) {
+        const char *source = "";
+        if (std::string_view(exidx.reason) == "phdr-fallback")
+            source = " source=phdr-fallback";
+        else if (std::string_view(exidx.reason) == "phdr-preferred")
+            source = " source=phdr-preferred";
         LOG_INFO("[EHABI] module={} exidx=0x{:08X}-0x{:08X} extab=0x{:08X}-0x{:08X} relocated=yes{}",
-            ehabi_name, exidx.top, exidx.end, extab.top, extab.end,
-            std::string_view(exidx.reason) == "phdr-fallback" ? " source=phdr-fallback" : "");
+            ehabi_name, exidx.top, exidx.end, extab.top, extab.end, source);
     } else if (module_info->exidx_top != 0xffffffff && module_info->exidx_top >= seg_size) {
         LOG_INFO("[EHABI] module={} exidx=none reason=offset-out-of-segment off=0x{:08X} seg=0x{:08X}+0x{:X} hint=\"C++ throw in this module will terminate; run with --dump-elfs and attach log\"",
             ehabi_name, module_info->exidx_top, seg_base, seg_size);
