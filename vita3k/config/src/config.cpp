@@ -390,6 +390,14 @@ ExitCode init_config(Config &cfg, int argc, char **argv, const Root &root_paths,
         ->group("Logging");
     config->add_flag("--log-uniforms,-U", command_line.log_uniforms, "Log Uniforms")
         ->group("Logging");
+    config->add_flag("--log-ehabi", command_line.log_ehabi, "Log extra EHABI/EXIDX details. One [EHABI] line per module is always printed.")
+        ->group("Logging");
+    config->add_flag("--dump-abort-state", command_line.dump_abort_state, "Dump guest abort state (status/PC) and the HLE import flight recorder")
+        ->group("Logging");
+    config->add_flag("--dump-elfs", command_line.dump_elfs, "Dump loaded SELF/ELF images for static EXIDX checks")
+        ->group("Logging");
+    config->add_flag("!--no-fios-overlay-per-thread", command_line.fios_overlay_per_thread, "Ignore per-thread FIOS overlay disable (default: honor sceFiosOverlayThreadSetDisabled02)")
+        ->group("Vita Emulation");
     // clang-format on
 
     // Parse the inputs
@@ -466,6 +474,10 @@ ExitCode init_config(Config &cfg, int argc, char **argv, const Root &root_paths,
         LOG_INFO_IF(cfg.content_path, "input-content-path: {}", cfg.content_path->string());
         LOG_INFO_IF(cfg.run_app_path, "input-installed-path: {}", *cfg.run_app_path);
         LOG_INFO("log-level: {}", LIST_LOG_LEVEL[cfg.log_level]);
+        LOG_INFO("log-ehabi: {}", cfg.log_ehabi);
+        LOG_INFO("dump-abort-state: {}", cfg.dump_abort_state);
+        LOG_INFO("dump-elfs: {}", cfg.dump_elfs);
+        LOG_INFO("fios-overlay-per-thread: {}", cfg.fios_overlay_per_thread);
         LOG_INFO_IF(cfg.log_active_shaders, "log-active-shaders: enabled");
         LOG_INFO_IF(cfg.log_uniforms, "log-uniforms: enabled");
     }

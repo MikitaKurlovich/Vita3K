@@ -128,6 +128,7 @@ class ArmDynarmicCallback : public Dynarmic::A32::UserCallbacks {
 
     CPUState *parent;
     DynarmicCPU *cpu;
+    std::atomic<int> first_invalid_writes{ 0 };
 
 public:
     explicit ArmDynarmicCallback(CPUState &parent, DynarmicCPU &cpu)
@@ -201,7 +202,6 @@ public:
     void MemoryWrite(Dynarmic::A32::VAddr addr, T value) {
         Ptr<T> ptr{ addr };
         if (!ptr || !ptr.valid(*parent->mem) || ptr.address() < parent->mem->host_page_size) {
-            static std::atomic<int> first_invalid_writes{ 0 };
             const int n = first_invalid_writes.fetch_add(1, std::memory_order_relaxed);
             if (n < 3) {
                 LOG_CRITICAL("First guest invalid write #{} of uint{}_t at addr: 0x{:x}, val = 0x{:x} tid={}\n{}",

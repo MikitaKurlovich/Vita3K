@@ -432,6 +432,9 @@ static ExitCode load_app_impl(SceUID &main_module_id, EmuEnvState &emuenv, const
         LOG_WARN("Failed to init kernel!");
         return KernelInitFailed;
     }
+    emuenv.kernel.debugger.dump_elfs = emuenv.cfg.dump_elfs;
+    emuenv.kernel.debugger.log_ehabi = emuenv.cfg.log_ehabi;
+    emuenv.kernel.debugger.dump_abort_state = emuenv.cfg.dump_abort_state;
 
     if (emuenv.cfg.archive_log) {
         const fs::path log_directory{ emuenv.log_path / "logs" };

@@ -178,6 +178,10 @@ using PhysicalKeyCode = input::PhysicalKeyCode;
     code(std::string, "pref-path", std::string{}, vita_fs_path)                                         \
     code(bool, "discord-rich-presence", true, discord_rich_presence)                                    \
     code(bool, "wait-for-debugger", false, wait_for_debugger)                                           \
+    code(bool, "log-ehabi", false, log_ehabi)                                                           \
+    code(bool, "dump-abort-state", false, dump_abort_state)                                             \
+    code(bool, "dump-elfs", false, dump_elfs)                                                           \
+    code(bool, "fios-overlay-per-thread", true, fios_overlay_per_thread)                                \
     code(bool, "color-surface-debug", false, color_surface_debug)                                       \
     code(bool, "performance-overlay", false, performance_overlay)                                       \
     code(int, "performance-overlay-detail", static_cast<int>(MINIMUM), performance_overlay_detail)      \

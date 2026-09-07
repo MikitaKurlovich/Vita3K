@@ -38,10 +38,11 @@
 #include <util/log.h>
 #include <util/string_utils.h>
 
-#include <unordered_set>
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <mutex>
+#include <ranges>
 
 static constexpr bool LOG_UNK_NIDS_ALWAYS = false;
 
@@ -146,8 +147,14 @@ Ptr<void> get_client_vtable(KernelState &kernel, MemState &mem) {
     return kernel.client_vtable;
 }
 
-static void log_import_call(char emulation_level, uint32_t nid, SceUID thread_id, const std::unordered_set<uint32_t> &nid_blacklist, Address lr) {
-    if (!nid_blacklist.contains(nid)) {
+static constexpr std::array<uint32_t, 3> hle_nid_blacklist{ 0xB295EB61, 0x46E7BE7B, 0x91FA6614 };
+
+static bool nid_is_blacklisted(uint32_t nid) {
+    return std::ranges::find(hle_nid_blacklist, nid) != hle_nid_blacklist.end();
+}
+
+static void log_import_call(char emulation_level, uint32_t nid, SceUID thread_id, Address lr) {
+    if (!nid_is_blacklisted(nid)) {
         const char *const name = import_name(nid);
         LOG_TRACE("[{}LE] TID: {:<3} FUNC: {} {} at {}", emulation_level, thread_id, log_hex(nid), name, log_hex(lr));
     }
@@ -167,6 +174,10 @@ void dump_import_flight_recorder(EmuEnvState &emuenv) {
 }
 
 void dump_guest_abort_state(EmuEnvState &emuenv, SceUID thread_id, const char *reason) {
+    auto &dbg = emuenv.kernel.debugger;
+    if (!dbg.dump_abort_state && !dbg.watch_import_calls)
+        return;
+
     LOG_ERROR("=== guest abort dump ({}) ===", reason);
     dump_import_flight_recorder(emuenv);
 
@@ -188,22 +199,22 @@ void dump_guest_abort_state(EmuEnvState &emuenv, SceUID thread_id, const char *r
             LOG_ERROR("thread {} '{}' busy", id, other->name);
             continue;
         }
-        const auto ctx = save_context(*other->cpu);
-        LOG_ERROR("thread {} '{}' status={} pc={:08X} lr={:08X} sp={:08X}",
-            id, other->name, static_cast<int>(other->status), ctx.get_pc(), ctx.get_lr(), ctx.get_sp());
+        // Do not save_context of a running JIT thread (releases mutex around run()).
+        if (other->status == ThreadStatus::run) {
+            LOG_ERROR("thread {} '{}' status=run (pc skipped)", id, other->name);
+            continue;
+        }
+        LOG_ERROR("thread {} '{}' status={} pc={:08X}",
+            id, other->name, static_cast<int>(other->status), read_pc(*other->cpu));
     }
 }
 
 void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread_id) {
-    const std::unordered_set<uint32_t> hle_nid_blacklist = {
-        0xB295EB61, // sceKernelGetTLSAddr
-        0x46E7BE7B, // sceKernelLockLwMutex
-        0x91FA6614, // sceKernelUnlockLwMutex
-    };
+    auto &dbg = emuenv.kernel.debugger;
+    const bool record_imports = dbg.dump_abort_state || dbg.watch_import_calls;
 
     uint32_t flight_slot = UINT32_MAX;
-    if (!hle_nid_blacklist.contains(nid)) {
-        auto &dbg = emuenv.kernel.debugger;
+    if (record_imports && !nid_is_blacklisted(nid)) {
         flight_slot = dbg.import_flight_seq.fetch_add(1, std::memory_order_relaxed) % Debugger::import_flight_size;
         auto &rec = dbg.import_flight[flight_slot];
         rec.nid = nid;
@@ -217,9 +228,9 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
     }
 
     // HLE - call our C++ function
-    if (emuenv.kernel.debugger.watch_import_calls) {
+    if (dbg.watch_import_calls) {
         auto lr = read_lr(cpu);
-        log_import_call('H', nid, thread_id, hle_nid_blacklist, lr);
+        log_import_call('H', nid, thread_id, lr);
     }
     const ImportFn *fn = resolve_import(nid);
     if (fn) {
@@ -237,7 +248,7 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
     }
 
     if (flight_slot != UINT32_MAX)
-        emuenv.kernel.debugger.import_flight[flight_slot].ret = read_reg(cpu, 0);
+        dbg.import_flight[flight_slot].ret = read_reg(cpu, 0);
 }
 
 struct SceKernelBootimageModules {
