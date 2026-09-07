@@ -17,6 +17,13 @@
 
 #include <module/module.h>
 
+#include <config/state.h>
+#include <ngs/system.h>
+
+enum SceNgsInternalError : uint32_t {
+    SCE_NGS_INTERNAL_ERROR_INVALID_ARG = 0x804A0002
+};
+
 EXPORT(int, sceNgsModuleCheckParamsInRangeInternal) {
     return UNIMPLEMENTED();
 }
@@ -113,8 +120,13 @@ EXPORT(int, sceNgsSystemReleaseInternal) {
     return UNIMPLEMENTED();
 }
 
-EXPORT(int, sceNgsSystemSetFlagsInternal) {
-    return UNIMPLEMENTED();
+EXPORT(int, sceNgsSystemSetFlagsInternal, ngs::System *system, SceUInt32 flags) {
+    if (!emuenv.cfg.current_config.ngs_enable)
+        return 0;
+    if (!system)
+        return RET_ERROR(SCE_NGS_INTERNAL_ERROR_INVALID_ARG);
+    system->flags = flags;
+    return 0;
 }
 
 EXPORT(int, sceNgsSystemSetParamErrorCallbackInternal) {

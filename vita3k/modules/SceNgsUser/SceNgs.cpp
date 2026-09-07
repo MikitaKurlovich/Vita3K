@@ -447,7 +447,7 @@ EXPORT(int, sceNgsSystemSetFlags, ngs::System *system, SceUInt32 flags) {
         return SCE_NGS_OK;
     if (!system)
         return RET_ERROR(SCE_NGS_ERROR_INVALID_ARG);
-    STUBBED("NGS system flags ignored");
+    system->flags = flags;
     return SCE_NGS_OK;
 }
 
