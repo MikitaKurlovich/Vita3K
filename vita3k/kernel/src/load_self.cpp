@@ -866,9 +866,15 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
     sceKernelModuleInfo->tlsAreaSize = module_info->tls_memsz;
 
     if (sceKernelModuleInfo->tlsInit) {
-        kernel.tls_address = sceKernelModuleInfo->tlsInit;
-        kernel.tls_psize = sceKernelModuleInfo->tlsInitSize;
-        kernel.tls_msize = sceKernelModuleInfo->tlsAreaSize;
+        // One process-wide TLS image. eboot loads first; later libc/fios modules must not overwrite hxcpp TLS.
+        if (!kernel.tls_address) {
+            kernel.tls_address = sceKernelModuleInfo->tlsInit;
+            kernel.tls_psize = sceKernelModuleInfo->tlsInitSize;
+            kernel.tls_msize = sceKernelModuleInfo->tlsAreaSize;
+        } else {
+            LOG_INFO("[TLS] keep first writer; skip module={} tlsInit=0x{:08X} existing=0x{:08X}",
+                ehabi_name, sceKernelModuleInfo->tlsInit.address(), kernel.tls_address.address());
+        }
     }
 
     strncpy(sceKernelModuleInfo->path, self_path.c_str(), 255);
