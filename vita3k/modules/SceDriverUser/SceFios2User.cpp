@@ -117,7 +117,7 @@ EXPORT(int, sceFiosOverlayResolveWithRangeSync02, SceUID processId, SceFiosOverl
     TRACY_FUNC(sceFiosOverlayResolveWithRangeSync02, processId, resolveFlag, pInPath, pOutPath, maxPath, min_order, max_order);
 
     const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
-    const bool disabled = emuenv.cfg.fios_overlay_per_thread && thread && thread->fios_overlay_disabled != 0;
+    const bool disabled = emuenv.cfg.fios_overlay_per_thread && thread && thread->fios_overlay_disabled.load() != 0;
 
     std::string resolved;
     const char *src = pInPath ? pInPath : "";
@@ -142,12 +142,12 @@ EXPORT(int, sceFiosOverlayThreadIsDisabled02) {
     if (!emuenv.cfg.fios_overlay_per_thread)
         return 0;
     const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
-    return thread ? thread->fios_overlay_disabled : 0;
+    return thread ? thread->fios_overlay_disabled.load() : 0;
 }
 
 EXPORT(int, sceFiosOverlayThreadSetDisabled02, int disabled) {
     TRACY_FUNC(sceFiosOverlayThreadSetDisabled02, disabled);
     if (const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id))
-        thread->fios_overlay_disabled = disabled;
+        thread->fios_overlay_disabled.store(disabled);
     return SCE_FIOS_OK;
 }

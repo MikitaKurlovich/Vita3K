@@ -23,6 +23,7 @@
 #include <mem/block.h>
 #include <mem/ptr.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <optional>
@@ -75,7 +76,7 @@ struct ThreadState {
     // set to true if thread is processing kernel callbacks
     bool is_processing_callbacks = false;
     // sceFiosOverlayThreadSetDisabled02: per-thread, not process-wide.
-    int fios_overlay_disabled = 0;
+    std::atomic<int> fios_overlay_disabled{ 0 };
 
     CPUStatePtr cpu;
     ThreadStatus status = ThreadStatus::dormant;

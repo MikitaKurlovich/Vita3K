@@ -162,12 +162,14 @@ static void log_import_call(char emulation_level, uint32_t nid, SceUID thread_id
 
 void dump_import_flight_recorder(EmuEnvState &emuenv) {
     auto &dbg = emuenv.kernel.debugger;
-    const uint32_t seq = dbg.import_flight_seq.load(std::memory_order_relaxed);
+    std::array<ImportFlightRecord, Debugger::import_flight_size> recs{};
+    uint32_t seq = 0;
+    dbg.copy_import_flight(recs, seq);
     const uint32_t n = std::min<uint32_t>(seq, Debugger::import_flight_size);
     LOG_ERROR("HLE flight recorder (last {} calls):", n);
     for (uint32_t i = 0; i < n; ++i) {
         const uint32_t idx = (seq - n + i) % Debugger::import_flight_size;
-        const auto &rec = dbg.import_flight[idx];
+        const auto &rec = recs[idx];
         LOG_ERROR("  [{}] {} {} tid={} lr={:08X} r0={:08X} r1={:08X} r2={:08X} r3={:08X} ret={:08X}",
             i, log_hex(rec.nid), import_name(rec.nid), rec.thread_id, rec.lr, rec.r0, rec.r1, rec.r2, rec.r3, rec.ret);
     }
@@ -183,8 +185,12 @@ void dump_guest_abort_state(EmuEnvState &emuenv, SceUID thread_id, const char *r
 
     const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
     if (thread && thread->cpu) {
-        LOG_ERROR("throwing thread {} '{}'\n{}", thread_id, thread->name, save_context(*thread->cpu).description());
-        LOG_ERROR("stack scan:\n{}", thread->log_stack_traceback());
+        if (thread->status == ThreadStatus::run) {
+            LOG_ERROR("throwing thread {} '{}' status=run pc={:08X}", thread_id, thread->name, read_pc(*thread->cpu));
+        } else {
+            LOG_ERROR("throwing thread {} '{}'\n{}", thread_id, thread->name, save_context(*thread->cpu).description());
+            LOG_ERROR("stack scan:\n{}", thread->log_stack_traceback());
+        }
     }
 
     std::unique_lock<std::mutex> klock(emuenv.kernel.mutex, std::try_to_lock);
@@ -215,8 +221,7 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
 
     uint32_t flight_slot = UINT32_MAX;
     if (record_imports && !nid_is_blacklisted(nid)) {
-        flight_slot = dbg.import_flight_seq.fetch_add(1, std::memory_order_relaxed) % Debugger::import_flight_size;
-        auto &rec = dbg.import_flight[flight_slot];
+        ImportFlightRecord rec{};
         rec.nid = nid;
         rec.thread_id = thread_id;
         rec.lr = read_lr(cpu);
@@ -225,6 +230,7 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
         rec.r2 = read_reg(cpu, 2);
         rec.r3 = read_reg(cpu, 3);
         rec.ret = 0;
+        flight_slot = dbg.record_import_flight(rec);
     }
 
     // HLE - call our C++ function
@@ -248,7 +254,7 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
     }
 
     if (flight_slot != UINT32_MAX)
-        dbg.import_flight[flight_slot].ret = read_reg(cpu, 0);
+        dbg.finish_import_flight(flight_slot, read_reg(cpu, 0));
 }
 
 struct SceKernelBootimageModules {

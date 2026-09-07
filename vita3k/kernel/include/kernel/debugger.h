@@ -24,6 +24,7 @@
 #include <array>
 #include <atomic>
 #include <map>
+#include <mutex>
 
 struct KernelState;
 
@@ -66,10 +67,10 @@ struct Debugger {
     bool log_ehabi = false;
     bool dump_abort_state = false;
 
-    // Ring buffer of recent HLE imports. Dumped on guest throw/abort.
     static constexpr size_t import_flight_size = 64;
-    std::array<ImportFlightRecord, import_flight_size> import_flight{};
-    std::atomic<uint32_t> import_flight_seq{ 0 };
+    uint32_t record_import_flight(const ImportFlightRecord &rec);
+    void finish_import_flight(uint32_t slot, uint32_t ret);
+    void copy_import_flight(std::array<ImportFlightRecord, import_flight_size> &out, uint32_t &seq) const;
 
     void add_watch_memory_addr(Address addr, size_t size);
     void remove_watch_memory_addr(KernelState &state, Address addr);
@@ -81,7 +82,10 @@ struct Debugger {
 
 private:
     std::mutex mutex;
+    mutable std::mutex flight_mutex;
     KernelState &parent;
     WatchMemoryAddrs watch_memory_addrs;
     Breakpoints breakpoints;
+    std::array<ImportFlightRecord, import_flight_size> import_flight{};
+    std::atomic<uint32_t> import_flight_seq{ 0 };
 };

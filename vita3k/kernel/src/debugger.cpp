@@ -18,6 +18,8 @@
 #include <kernel/debugger.h>
 #include <kernel/state.h>
 
+#include <cstring>
+
 constexpr unsigned char THUMB_BREAKPOINT[2] = { 0x00, 0xBE };
 constexpr unsigned char ARM_BREAKPOINT[4] = { 0x70, 0x00, 0x20, 0xE1 };
 
@@ -79,4 +81,24 @@ void Debugger::deinit() {
     std::lock_guard<std::mutex> lock(mutex);
     breakpoints.clear();
     watch_memory_addrs.clear();
+}
+
+uint32_t Debugger::record_import_flight(const ImportFlightRecord &rec) {
+    std::lock_guard<std::mutex> lock(flight_mutex);
+    const uint32_t slot = import_flight_seq.fetch_add(1, std::memory_order_relaxed) % import_flight_size;
+    import_flight[slot] = rec;
+    return slot;
+}
+
+void Debugger::finish_import_flight(uint32_t slot, uint32_t ret) {
+    if (slot >= import_flight_size)
+        return;
+    std::lock_guard<std::mutex> lock(flight_mutex);
+    import_flight[slot].ret = ret;
+}
+
+void Debugger::copy_import_flight(std::array<ImportFlightRecord, import_flight_size> &out, uint32_t &seq) const {
+    std::lock_guard<std::mutex> lock(flight_mutex);
+    out = import_flight;
+    seq = import_flight_seq.load(std::memory_order_relaxed);
 }

@@ -2082,11 +2082,16 @@ EXPORT(int, __cxa_increment_exception_refcount) {
     return UNIMPLEMENTED();
 }
 
+static bool path_basename_is(std::string_view path, std::string_view name) {
+    const auto pos = path.find_last_of("/\\:");
+    const auto base = pos == std::string_view::npos ? path : path.substr(pos + 1);
+    return base == name;
+}
+
 static bool lle_libc_loaded(KernelState &kernel) {
     const std::lock_guard<std::mutex> lock(kernel.mutex);
     for (const auto &[_, mod] : kernel.loaded_modules) {
-        const std::string_view path(mod->info.path);
-        if (path.find("libc.suprx") != std::string_view::npos)
+        if (path_basename_is(mod->info.path, "libc.suprx"))
             return true;
     }
     return false;
