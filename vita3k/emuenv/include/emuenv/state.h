@@ -136,6 +136,8 @@ public:
     std::string self_path{};
     Config &cfg;
     SceUID main_thread_id{};
+    bool app_util_initialized = false;
+    uint32_t app_util_work_buf_size = 0;
     size_t frame_count = 0;
     uint32_t fps = 0;
     uint32_t avg_fps = 0;

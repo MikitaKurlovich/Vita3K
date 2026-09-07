@@ -499,6 +499,9 @@ void shutdown_app_runtime(EmuEnvState &state) {
 
     io_deinit(state.io);
 
+    state.app_util_initialized = false;
+    state.app_util_work_buf_size = 0;
+
     state.camera.deinit();
 
     state.common_dialog.deinit();
@@ -538,6 +541,8 @@ void reset_app_state(EmuEnvState &state) {
     state.main_thread_id = 0;
     state.drop_inputs = false;
     state.missing_nids.clear();
+    state.app_util_initialized = false;
+    state.app_util_work_buf_size = 0;
     state.clear_app_launch_request();
 
     state.ctrl.reset_runtime();
