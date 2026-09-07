@@ -76,6 +76,16 @@ inline EhabiRange normalize_ehabi_range(Address top, Address end) {
     return { top, end, "ok" };
 }
 
+// EXTAB is a variable-length personality blob, not an 8-byte array. Do not
+// reuse the EXIDX %8 check: PCSE01056 libc EXTAB is 0x1CA4 bytes and is valid.
+inline EhabiRange normalize_extab_range(Address top, Address end) {
+    if (top == 0 && end == 0)
+        return { 0, 0, "no-tables" };
+    if (top == 0 || end == 0 || end <= top)
+        return { 0, 0, "degenerate" };
+    return { top, end, "ok" };
+}
+
 // PT_ARM_EXIDX is the ELF-authoritative table. Prefer it when both ranges exist
 // and disagree; fall back to it when module_info had no usable pair.
 inline EhabiRange select_exidx_range(const EhabiRange &from_info, const EhabiRange &from_phdr) {
@@ -95,6 +105,15 @@ inline EhabiRange select_exidx_range(const EhabiRange &from_info, const EhabiRan
 inline bool segment_contains(const SceKernelSegmentInfo &seg, Address addr) {
     const Address vaddr = seg.vaddr.address();
     return addr >= vaddr && addr < vaddr + seg.memsz;
+}
+
+// ELF PF_X. LLE libc Find_exidx walks SceKernelSegmentInfo looking for
+// (perms & 1) before it caches exidx_top/exidx_btm. Unset perms → empty
+// cache → bsearch(NULL) → _URC_FAILURE → std::terminate on the first throw.
+constexpr uint32_t SCE_KERNEL_SEGMENT_PERM_X = 1;
+
+inline bool segment_is_executable(const SceKernelSegmentInfo &seg) {
+    return seg.size != 0 && (seg.perms & SCE_KERNEL_SEGMENT_PERM_X) != 0;
 }
 
 inline bool module_has_loaded_code(const SceKernelModuleInfo &info) {
@@ -160,14 +179,19 @@ inline bool guest_range_fits32(Address start, uint32_t len) {
 
 // Copy host module info into a guest SceKernelModuleInfo. src == nullptr means
 // the lookup failed (NOENT) after the pointer/range checks.
-inline int copy_module_info_to_guest(const SceKernelModuleInfo *src, Address info_va, MemState &mem) {
+// force_full: GetModuleInfoByAddr. LLE libc never writes info.size before the
+// call; a truncated copy omits segments[].perms and unwind caches a NULL EXIDX.
+inline int copy_module_info_to_guest(const SceKernelModuleInfo *src, Address info_va, MemState &mem, bool force_full = false) {
     if (!info_va)
         return SCE_KERNEL_ERROR_ILLEGAL_ADDR;
     if (!guest_range_fits32(info_va, sizeof(SceSize)) || !is_valid_addr_range(mem, info_va, info_va + sizeof(SceSize)))
         return SCE_KERNEL_ERROR_ILLEGAL_ADDR;
 
     const uint32_t guest_size = *Ptr<SceSize>(info_va).get(mem);
-    const uint32_t n = effective_module_info_copy_size(guest_size);
+    uint32_t n = effective_module_info_copy_size(guest_size);
+    const uint32_t full = static_cast<uint32_t>(sizeof(SceKernelModuleInfo));
+    if (force_full && guest_range_fits32(info_va, full) && is_valid_addr_range(mem, info_va, info_va + full))
+        n = full;
     if (n != 0 && (!guest_range_fits32(info_va, n) || !is_valid_addr_range(mem, info_va, info_va + n)))
         return SCE_KERNEL_ERROR_ILLEGAL_ADDR;
     if (!src)

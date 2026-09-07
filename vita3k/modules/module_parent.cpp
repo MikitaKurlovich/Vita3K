@@ -189,12 +189,12 @@ void dump_guest_abort_state(EmuEnvState &emuenv, SceUID thread_id, const char *r
 
     const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
     if (thread && thread->cpu) {
-        if (thread->status == ThreadStatus::run) {
-            LOG_ERROR("throwing thread {} '{}' status=run pc={:08X}", thread_id, thread->name, read_pc(*thread->cpu));
-        } else {
-            LOG_ERROR("throwing thread {} '{}'\n{}", thread_id, thread->name, save_context(*thread->cpu).description());
-            LOG_ERROR("stack scan:\n{}", thread->log_stack_traceback());
-        }
+        // This thread is inside HLE (CallAbortHandler), not in dynarmic run().
+        // Registers and a stack scan are valid; skipping them hid every eboot frame.
+        LOG_ERROR("throwing thread {} '{}' status={} pc={:08X}\n{}",
+            thread_id, thread->name, static_cast<int>(thread->status), read_pc(*thread->cpu),
+            save_context(*thread->cpu).description());
+        LOG_ERROR("stack scan:\n{}", thread->log_stack_traceback());
     }
 
     std::unique_lock<std::mutex> klock(emuenv.kernel.mutex, std::try_to_lock);

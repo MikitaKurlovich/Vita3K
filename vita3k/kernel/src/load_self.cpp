@@ -77,15 +77,31 @@ static constexpr uint32_t UNWIND_NIDS[] = {
 
 static void audit_unwind_bindings(KernelState &kernel, MemState &mem, const std::string &self_path) {
     const std::lock_guard<std::mutex> guard(kernel.export_nids_mutex);
+    int remaining_svc = 0;
+    int exported_but_unbound = 0;
     for (uint32_t nid : UNWIND_NIDS) {
+        const bool exported = kernel.export_nids.find(nid) != kernel.export_nids.end();
         auto range = kernel.func_binding_infos.equal_range(nid);
         for (auto it = range.first; it != range.second; ++it) {
             const uint32_t *stub = Ptr<uint32_t>(it->second.entry_address).get(mem);
-            if (stub && stub[0] == 0xef000000) {
-                LOG_WARN("[EHABI] module={} nid={} ({}) still svc stub at 0x{:08X} hint=\"import-not-bound-to-LLE-libc\"",
-                    self_path, log_hex(nid), import_name(nid), it->second.entry_address);
-            }
+            if (!stub || stub[0] != 0xef000000)
+                continue;
+            remaining_svc++;
+            if (!exported)
+                continue;
+            exported_but_unbound++;
+            LOG_WARN("[EHABI] module={} nid={} ({}) still svc stub at 0x{:08X} hint=\"import-not-bound-to-LLE-libc\"",
+                self_path, log_hex(nid), import_name(nid), it->second.entry_address);
         }
+    }
+    // Before libc exports exist, eboot stubs are still svc. That is expected.
+    // After libc.suprx, remaining-svc must be 0 or the throw stays on HLE.
+    if (path_basename_is(self_path, "libc.suprx") || exported_but_unbound > 0) {
+        if (remaining_svc == 0)
+            LOG_INFO("[EHABI] unwind-bind remaining-svc=0 exported-but-unbound=0 hint=\"LLE libc owns __cxa_throw\"");
+        else
+            LOG_WARN("[EHABI] unwind-bind remaining-svc={} exported-but-unbound={} hint=\"library_nid mismatch; HLE __cxa_throw will fire\"",
+                remaining_svc, exported_but_unbound);
     }
 }
 
@@ -126,6 +142,8 @@ static bool load_var_imports(const uint32_t *nids, const Ptr<uint32_t> *entries,
             auto alloc_name = fmt::format("Stub var import reloc symval, NID {} ({})", log_hex(nid), name);
             auto stub_symval_ptr = Ptr<uint32_t>(alloc(mem, 4, alloc_name.c_str()));
             *stub_symval_ptr.get(mem) = STUB_SYMVAL;
+            LOG_INFO_IF(kernel.debugger.log_ehabi, "[LINK] var NID NOT FOUND {} ({}) stub=0x{:08X} value=0xDEADBEEF",
+                log_hex(nid), name, stub_symval_ptr.address());
 
             export_address = stub_symval_ptr.address();
 
@@ -415,6 +433,8 @@ static bool load_var_exports(const uint32_t *nids, const Ptr<uint32_t> *entries,
         auto nid_it = kernel.export_nids.find(nid);
         if (nid_it != kernel.export_nids.end()) {
             LOG_DEBUG("Found previously not found variable. nid:{}, new_entry_point:{}", log_hex(nid), log_hex(entry.address()));
+            LOG_INFO_IF(kernel.debugger.log_ehabi, "[LINK] var rebound {} ({}) stub=0x{:08X} -> 0x{:08X}",
+                log_hex(nid), import_name(nid), nid_it->second, entry.address());
             old_entry_address = kernel.export_nids[nid];
         }
         kernel.export_nids[nid] = entry.address();
@@ -821,7 +841,7 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
     const Address extab_end_raw = relocate_module_info_offset(module_info->extab_end, seg_base, seg_size, ModuleInfoOffsetKind::ExclusiveEnd);
 
     EhabiRange exidx = normalize_ehabi_range(exidx_top_raw, exidx_end_raw);
-    const EhabiRange extab = normalize_ehabi_range(extab_top_raw, extab_end_raw);
+    const EhabiRange extab = normalize_extab_range(extab_top_raw, extab_end_raw);
 
     Address phdr_end = 0;
     const Address phdr_top = have_arm_exidx_phdr
@@ -892,6 +912,7 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
 
         SceKernelSegmentInfo &segment = sceKernelModuleInfo->segments[segment_index];
         segment.size = sizeof(segment);
+        segment.perms = segments[segment_index].p_flags;
         segment.vaddr = it->second.addr;
         segment.memsz = segments[segment_index].p_memsz;
         segment.filesz = segments[segment_index].p_filesz;

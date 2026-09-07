@@ -99,6 +99,26 @@ TEST(normalize_ehabi_range, unaligned_length_kept) {
     EXPECT_STREQ(r.reason, "ok");
 }
 
+TEST(normalize_extab_range, both_null) {
+    const EhabiRange r = normalize_extab_range(0, 0);
+    EXPECT_EQ(r.top, 0u);
+    EXPECT_STREQ(r.reason, "no-tables");
+}
+
+TEST(normalize_extab_range, degenerate_order) {
+    const EhabiRange r = normalize_extab_range(0x81000010, 0x81000010);
+    EXPECT_EQ(r.top, 0u);
+    EXPECT_STREQ(r.reason, "degenerate");
+}
+
+TEST(normalize_extab_range, unaligned_length_kept) {
+    // libc.suprx EXTAB on PCSE01056 is 0x1CA4 bytes (not a multiple of 8).
+    const EhabiRange r = normalize_extab_range(0x80366650, 0x80366650 + 0x1CA4);
+    EXPECT_EQ(r.top, 0x80366650u);
+    EXPECT_EQ(r.end, 0x803682F4u);
+    EXPECT_STREQ(r.reason, "ok");
+}
+
 TEST(normalize_ehabi_range, exclusive_end_at_seg_limit) {
     const Address top = relocate_module_info_offset(0, 0x81000000, 0x1000);
     const Address end = relocate_module_info_offset(0x1000, 0x81000000, 0x1000, ModuleInfoOffsetKind::ExclusiveEnd);
@@ -281,6 +301,50 @@ TEST_F(ModuleInfoCopy, copies_struct_when_guest_size_huge) {
     EXPECT_EQ(copy_module_info_to_guest(&src, info_va, mem), SCE_KERNEL_OK);
     EXPECT_EQ(guest->modid, 7);
     EXPECT_EQ(guest->size, 0x1000u);
+}
+
+TEST(segment_is_executable, vita_rx_p_flags) {
+    SceKernelSegmentInfo seg{};
+    seg.size = sizeof(seg);
+    seg.perms = 0x80000005; // typical Vita RX PT_LOAD (PF_R|PF_X)
+    EXPECT_TRUE(segment_is_executable(seg));
+}
+
+TEST(segment_is_executable, vita_rw_p_flags) {
+    SceKernelSegmentInfo seg{};
+    seg.size = sizeof(seg);
+    seg.perms = 0x80000006; // typical Vita RW PT_LOAD (PF_R|PF_W)
+    EXPECT_FALSE(segment_is_executable(seg));
+}
+
+TEST(segment_is_executable, unset_perms_is_not_executable) {
+    SceKernelSegmentInfo seg{};
+    seg.size = sizeof(seg);
+    seg.perms = 0;
+    EXPECT_FALSE(segment_is_executable(seg));
+}
+
+TEST_F(ModuleInfoCopy, by_addr_small_guest_size_still_copies_segments) {
+    const Address info_va = alloc(mem, sizeof(SceKernelModuleInfo), "modinfo");
+    ASSERT_NE(info_va, 0u);
+    auto *guest = Ptr<SceKernelModuleInfo>(info_va).get(mem);
+    std::memset(guest, 0, sizeof(*guest));
+    guest->size = 0x40;
+
+    SceKernelModuleInfo src{};
+    src.size = sizeof(SceKernelModuleInfo);
+    src.exidx_top = Ptr<const void>(0x80363258);
+    src.exidx_btm = Ptr<const void>(0x80366650);
+    src.segments[0].size = sizeof(SceKernelSegmentInfo);
+    src.segments[0].perms = 0x80000005;
+    src.segments[0].vaddr = Ptr<const void>(0x80321000);
+    src.segments[0].memsz = 0x5191c;
+
+    EXPECT_EQ(copy_module_info_to_guest(&src, info_va, mem, true), SCE_KERNEL_OK);
+    EXPECT_EQ(guest->size, 0x40u);
+    EXPECT_EQ(guest->exidx_top.address(), 0x80363258u);
+    EXPECT_EQ(guest->segments[0].perms, 0x80000005u);
+    EXPECT_TRUE(segment_is_executable(guest->segments[0]));
 }
 
 TEST(module_contains_addr, finds_segment) {

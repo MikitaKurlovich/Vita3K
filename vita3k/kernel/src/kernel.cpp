@@ -301,5 +301,15 @@ int KernelState::copy_module_info_by_addr(Address address, Address info_va, MemS
             found = true;
         }
     }
-    return copy_module_info_to_guest(found ? &host : nullptr, info_va, mem);
+    const int ret = copy_module_info_to_guest(found ? &host : nullptr, info_va, mem, true);
+    if (debugger.log_ehabi) {
+        LOG_INFO("[EHABI] GetModuleInfoByAddr addr=0x{:08X} module={} exidx=0x{:08X}-0x{:08X} seg0_perms=0x{:X} ret=0x{:08X}",
+            address,
+            found ? host.module_name : "none",
+            found ? host.exidx_top.address() : 0,
+            found ? host.exidx_btm.address() : 0,
+            found ? host.segments[0].perms : 0,
+            static_cast<uint32_t>(ret));
+    }
+    return ret;
 }
