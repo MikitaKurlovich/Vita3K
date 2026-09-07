@@ -15,3 +15,12 @@ add_library(
 target_include_directories(gxm PUBLIC include)
 target_link_libraries(gxm PUBLIC util)
 target_link_libraries(gxm PRIVATE)
+
+if(BUILD_TESTING AND NOT ANDROID)
+	add_executable(
+		gxm-tests
+		tests/pass_type_tests.cpp
+	)
+	target_link_libraries(gxm-tests PRIVATE googletest gxm)
+	add_test(NAME gxm COMMAND gxm-tests)
+endif()

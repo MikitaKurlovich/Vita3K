@@ -294,4 +294,12 @@ void set_visibility_index(State &state, Context *ctx, bool enable, uint32_t inde
     renderer::add_state_set_command(ctx, renderer::GXMState::VisibilityIndex, index, enable, is_increment);
 }
 
+void set_w_clamp(State &state, Context *ctx, bool enable, float value) {
+    renderer::add_state_set_command(ctx, renderer::GXMState::WClamp, enable, value);
+}
+
+void set_w_buffer(State &state, Context *ctx, bool enable) {
+    renderer::add_state_set_command(ctx, renderer::GXMState::WBuffer, enable);
+}
+
 } // namespace renderer

@@ -143,14 +143,12 @@ enum struct BufferType {
 };
 
 struct TrappedBuffer {
-    uint32_t size;
+    uint32_t size = 0;
     // used by the index buffer to keep the max index
-    uint32_t extra;
+    uint32_t extra = ~0u;
     // no need for it to be atomic
     bool dirty = false;
-    uint8_t *mapped_location;
-
-    TrappedBuffer() {}
+    uint8_t *mapped_location = nullptr;
 };
 
 // structure to track which buffer were trapped and if they have been modified

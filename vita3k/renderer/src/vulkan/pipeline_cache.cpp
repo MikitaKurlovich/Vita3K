@@ -29,6 +29,10 @@
 #include <util/fs.h>
 #include <util/log.h>
 
+#include <atomic>
+#include <chrono>
+#include <thread>
+
 #include <SDL3/SDL_cpuinfo.h>
 
 // don't use the dispatch version, because we always hash a small amount
@@ -40,6 +44,13 @@ namespace renderer::vulkan {
 
 // Size of the record containing what is needed for the pipeline construction (what is after is dynamic state)
 constexpr size_t record_pipeline_len = offsetof(GxmRecordState, vertex_streams);
+
+static vk::Pipeline wait_for_pipeline(vk::Pipeline &slot, vk::Pipeline compiling) {
+    while (slot == compiling)
+        std::this_thread::sleep_for(std::chrono::microseconds(200));
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return slot;
+}
 
 // structure containing everything needed to compile a pipeline
 struct CompileRequest {
@@ -840,6 +851,7 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
     const bool use_shader_interlock = state.features.support_shader_interlock && gxm_fragment_shader->is_frag_color_used();
 
     const vk::PipelineRasterizationStateCreateInfo rasterizer{
+        .depthClampEnable = state.physical_device_features.depthClamp,
         .polygonMode = translate_polygon_mode(record.front_polygon_mode),
         .cullMode = translate_cull_mode(record.cull_mode),
         // front face is always counter clockwise
@@ -955,8 +967,7 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
     if (it != pipelines.end()) {
         if (it->second != nullptr) {
             if (it->second == pipeline_compiling)
-                // pipeline is still compiling
-                return nullptr;
+                return wait_for_pipeline(it->second, pipeline_compiling);
             else
                 return it->second;
         }
@@ -975,7 +986,8 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
     context.shader_hints.attributes = &vertex_program_gxm.attributes;
 
     // note: the flag can_use_deferred_compilation is not considered here because it causes way too many false positives
-    const bool compile_pipeline_async = !already_in_cache && consider_for_async && use_async_compilation;
+    // If async is on but workers are not running, compiling in-thread avoids a hang.
+    const bool compile_pipeline_async = !already_in_cache && consider_for_async && use_async_compilation && !worker_threads.empty();
 
     if (compile_pipeline_async) {
         // create the pipeline compile request
@@ -997,7 +1009,7 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
 
         pipeline_compile_queue.enqueue(pipeline_compile_queue_token, request);
 
-        return nullptr;
+        return wait_for_pipeline(it->second, pipeline_compiling);
     } else {
         // can't wait, compile it right now
         vk::Pipeline result = compile_pipeline(type, render_pass, vertex_program_gxm, fragment_program_gxm, record, context.shader_hints, mem);

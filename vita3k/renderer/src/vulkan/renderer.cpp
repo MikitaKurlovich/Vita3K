@@ -366,6 +366,7 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
 #ifdef __ANDROID__
     const bool custom_driver_requested = !config.current_config.custom_driver_name.empty();
 #endif
+    vsync = config.current_config.v_sync;
 
     // Create Instance
     {
@@ -606,6 +607,7 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
 
         // use these features (because they are used by the vita GPU) if they are available
         vk::PhysicalDeviceFeatures enabled_features{
+            .depthClamp = physical_device_features.depthClamp,
             .fillModeNonSolid = physical_device_features.fillModeNonSolid,
             .wideLines = physical_device_features.wideLines,
             .samplerAnisotropy = physical_device_features.samplerAnisotropy,
@@ -920,6 +922,7 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
 
 void VKState::late_init(const Config &cfg, const std::string_view game_id, MemState &mem) {
     this->mem = &mem;
+    vsync = cfg.current_config.v_sync;
 
     bool use_high_accuracy = cfg.current_config.high_accuracy;
 
@@ -1784,6 +1787,40 @@ void VKState::set_turbo_mode(bool set) {
 }
 #endif
 
+namespace {
+
+// DoubleBuffer/PageTable allocate size+4KiB. Unity streams often sit on that last page;
+// treating the guest map size as the copy limit skipped the memcpy and left GPU verts stale.
+struct MappedSlice {
+    uint8_t *host = nullptr;
+    uint32_t copy_size = 0;
+};
+
+MappedSlice resolve_mapped_slice(VKState &state, Address addr, uint32_t size) {
+    auto mem_it = state.mapped_memories.lower_bound(addr);
+    if (mem_it == state.mapped_memories.end() || addr < mem_it->first)
+        return {};
+    const uint32_t host_span = mem_it->second.size + KiB(4);
+    const uint32_t mapping_end = mem_it->first + host_span;
+    if (addr >= mapping_end)
+        return {};
+    auto *gpu_buffer = std::get_if<vkutil::Buffer>(&mem_it->second.buffer_impl);
+    if (!gpu_buffer || !gpu_buffer->mapped_data)
+        return {};
+    MappedSlice slice;
+    slice.host = reinterpret_cast<uint8_t *>(gpu_buffer->mapped_data) + (addr - mem_it->first);
+    slice.copy_size = std::min(size, mapping_end - addr);
+    return slice;
+}
+
+void copy_slice_from_guest(const MappedSlice &slice, Address addr, MemState &mem) {
+    if (!slice.host || slice.copy_size == 0)
+        return;
+    memcpy(slice.host, Ptr<void>(addr).get(mem), slice.copy_size);
+}
+
+} // namespace
+
 BufferTrapping::BufferTrapping(VKState &state)
     : state(state) {}
 
@@ -1795,23 +1832,19 @@ TrappedBuffer *BufferTrapping::access_buffer(Address addr, uint32_t size, MemSta
         cover_everything = true;
     } else if (is_buffer_small) {
         // not big enough to apply buffer trapping
-        auto mem_it = state.mapped_memories.lower_bound(addr);
-        if (mem_it == state.mapped_memories.end() || mem_it->first + mem_it->second.size < addr + size) {
-            LOG_ERROR("Buffer at address {} is not completely mapped", log_hex(addr));
+        const MappedSlice slice = resolve_mapped_slice(state, addr, size);
+        temp_buffer.size = size;
+        temp_buffer.mapped_location = slice.host;
+        temp_buffer.extra = ~0u;
+        if (!slice.host) {
+            LOG_WARN_ONCE("Buffer at address {} is not mapped", log_hex(addr));
             return &temp_buffer;
         }
-
-        temp_buffer.size = size;
-        temp_buffer.mapped_location = reinterpret_cast<uint8_t *>(std::get<vkutil::Buffer>(mem_it->second.buffer_impl).mapped_data);
-        temp_buffer.mapped_location += addr - mem_it->first;
-        temp_buffer.extra = ~0;
-
-        memcpy(temp_buffer.mapped_location, Ptr<void>(addr).get(mem), size);
+        copy_slice_from_guest(slice, addr, mem);
         return &temp_buffer;
     }
 
     auto it = trapped_buffers.find(addr);
-    bool is_new = false;
     if (it != trapped_buffers.end()) {
         // must check if everything match
         TrappedBuffer &buffer = it->second;
@@ -1820,7 +1853,6 @@ TrappedBuffer *BufferTrapping::access_buffer(Address addr, uint32_t size, MemSta
             return &it->second;
     } else {
         it = trapped_buffers.emplace(std::piecewise_construct, std::forward_as_tuple(addr), std::forward_as_tuple()).first;
-        is_new = true;
     }
 
     {
@@ -1836,18 +1868,13 @@ TrappedBuffer *BufferTrapping::access_buffer(Address addr, uint32_t size, MemSta
     }
     it->second.size = size;
     it->second.dirty = false;
-    it->second.extra = ~0;
+    it->second.extra = ~0u;
 
-    if (is_new) {
-        // we must find the matching mapped buffer
-        auto mem_it = state.mapped_memories.lower_bound(addr);
-        if (mem_it == state.mapped_memories.end() || mem_it->first + mem_it->second.size < addr + size) {
-            LOG_ERROR("Buffer at address {} is not completely mapped", log_hex(addr));
-            return &it->second;
-        }
-
-        it->second.mapped_location = reinterpret_cast<uint8_t *>(std::get<vkutil::Buffer>(mem_it->second.buffer_impl).mapped_data);
-        it->second.mapped_location += addr - mem_it->first;
+    const MappedSlice slice = resolve_mapped_slice(state, addr, size);
+    it->second.mapped_location = slice.host;
+    if (!slice.host) {
+        LOG_WARN_ONCE("Buffer at address {} is not mapped", log_hex(addr));
+        return &it->second;
     }
 
     Address aligned_addr;
@@ -1859,13 +1886,14 @@ TrappedBuffer *BufferTrapping::access_buffer(Address addr, uint32_t size, MemSta
         aligned_addr = align(addr, KiB(4));
         aligned_size = align_down(addr + size - aligned_addr, KiB(4));
     }
-    add_protect(mem, aligned_addr, aligned_size, MemPerm::ReadOnly, [it](Address addr, bool write) {
-        it->second.dirty = true;
-        return true;
-    });
+    if (aligned_size > 0) {
+        add_protect(mem, aligned_addr, aligned_size, MemPerm::ReadOnly, [it](Address addr, bool write) {
+            it->second.dirty = true;
+            return true;
+        });
+    }
 
-    // copy back the data as it was non-existent or dirty
-    memcpy(it->second.mapped_location, Ptr<void>(addr).get(mem), size);
+    copy_slice_from_guest(slice, addr, mem);
 
     return &it->second;
 }

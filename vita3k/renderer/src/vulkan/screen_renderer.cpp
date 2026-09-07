@@ -205,25 +205,30 @@ bool ScreenRenderer::setup() {
         state.deep_stencil_use = vk::Format::eD16Unorm;
     }
 
-    // preferred order : mailbox > fifo_relaxed > fifo > whatever
-    // the only drawback for mailbox is that it draws more power, so maybe on a portable device use something else
-    // this one should always be available
-    present_mode = vk::PresentModeKHR::eImmediate;
+    // Mailbox drops completed frames and ignores YAML v-sync. Vita vsync and
+    // tearing-free 3D need FIFO (spec-required). Mailbox only when vsync is off.
+    present_mode = vk::PresentModeKHR::eFifo;
     const auto present_modes = state.physical_device.getSurfacePresentModesKHR(surface);
-    for (const auto &mode : present_modes) {
-        if (mode == vk::PresentModeKHR::eMailbox) {
-            present_mode = mode;
-            break;
+    if (state.vsync) {
+        for (const auto &mode : present_modes) {
+            if (mode == vk::PresentModeKHR::eFifo) {
+                present_mode = mode;
+                break;
+            }
         }
-
-        if (mode == vk::PresentModeKHR::eFifoRelaxed) {
-            present_mode = mode;
-        }
-        if (present_mode == vk::PresentModeKHR::eFifoRelaxed)
-            continue;
-
-        if (mode == vk::PresentModeKHR::eFifo) {
-            present_mode = mode;
+    } else {
+        present_mode = vk::PresentModeKHR::eImmediate;
+        for (const auto &mode : present_modes) {
+            if (mode == vk::PresentModeKHR::eMailbox) {
+                present_mode = mode;
+                break;
+            }
+            if (mode == vk::PresentModeKHR::eFifoRelaxed)
+                present_mode = mode;
+            if (present_mode == vk::PresentModeKHR::eFifoRelaxed)
+                continue;
+            if (mode == vk::PresentModeKHR::eImmediate)
+                present_mode = mode;
         }
     }
     LOG_INFO("Present mode: {}", vk::to_string(present_mode));

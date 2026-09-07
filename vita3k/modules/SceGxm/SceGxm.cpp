@@ -1584,6 +1584,11 @@ static void gxmContextStateRestore(renderer::State &state, SceGxmContext *contex
     renderer::set_stencil_ref(state, context->renderer.get(), true, context->state.front_stencil.ref);
     renderer::set_stencil_ref(state, context->renderer.get(), false, context->state.back_stencil.ref);
 
+    renderer::set_w_clamp(state, context->renderer.get(),
+        context->state.w_clamp_mode != SCE_GXM_WCLAMP_MODE_DISABLED, context->state.w_clamp_value);
+    renderer::set_w_buffer(state, context->renderer.get(),
+        context->state.w_buffer_mode != SCE_GXM_WBUFFER_DISABLED);
+
     if (state.features.enable_memory_mapping) {
         context->state.visibility_enable = false;
         context->state.visibility_index = 0;
@@ -2694,9 +2699,9 @@ EXPORT(int, sceGxmFinish, SceGxmContext *context) {
 
 EXPORT(SceGxmPassType, sceGxmFragmentProgramGetPassType, const SceGxmFragmentProgram *fragmentProgram) {
     TRACY_FUNC(sceGxmFragmentProgramGetPassType, fragmentProgram);
-    assert(fragmentProgram);
-    STUBBED("SCE_GXM_PASS_TYPE_OPAQUE");
-    return SceGxmPassType::SCE_GXM_PASS_TYPE_OPAQUE;
+    if (!fragmentProgram)
+        return SceGxmPassType::SCE_GXM_PASS_TYPE_OPAQUE;
+    return fragmentProgram->pass_type;
 }
 
 EXPORT(Ptr<const SceGxmProgram>, sceGxmFragmentProgramGetProgram, const SceGxmFragmentProgram *fragmentProgram) {
@@ -2707,8 +2712,12 @@ EXPORT(Ptr<const SceGxmProgram>, sceGxmFragmentProgramGetProgram, const SceGxmFr
 
 EXPORT(bool, sceGxmFragmentProgramIsEnabled, const SceGxmFragmentProgram *fragmentProgram) {
     TRACY_FUNC(sceGxmFragmentProgramIsEnabled, fragmentProgram);
-    assert(fragmentProgram);
-    return UNIMPLEMENTED();
+    if (!fragmentProgram)
+        return false;
+    const SceGxmProgram *program = fragmentProgram->program.get(emuenv.mem);
+    if (!program)
+        return false;
+    return !program->has_no_effect();
 }
 
 EXPORT(int, sceGxmGetContextType, const SceGxmContext *context, SceGxmContextType *type) {
@@ -2948,8 +2957,8 @@ EXPORT(int, sceGxmMapVertexUsseMemory, Ptr<void> base, uint32_t size, uint32_t *
 
 EXPORT(int, sceGxmMidSceneFlush, SceGxmContext *immediateContext, uint32_t flags, SceGxmSyncObject *vertexSyncObject, const SceGxmNotification *vertexNotification) {
     TRACY_FUNC(sceGxmMidSceneFlush, immediateContext, flags, vertexSyncObject, vertexNotification);
-    if (flags != 0)
-        STUBBED("Flags ignored");
+    if (flags & ~SCE_GXM_MIDSCENE_PRESERVE_DEFAULT_UNIFORM_BUFFERS)
+        STUBBED("Unknown mid-scene flags");
 
     if (!immediateContext)
         return RET_ERROR(SCE_GXM_ERROR_INVALID_POINTER);
@@ -4423,19 +4432,37 @@ EXPORT(int, sceGxmSetVisibilityBuffer, SceGxmContext *immediateContext, Ptr<void
     return 0;
 }
 
-EXPORT(void, sceGxmSetWBufferEnable) {
-    TRACY_FUNC(sceGxmSetWBufferEnable);
-    UNIMPLEMENTED();
+EXPORT(void, sceGxmSetWBufferEnable, SceGxmContext *context, SceGxmWBufferMode enable) {
+    TRACY_FUNC(sceGxmSetWBufferEnable, context, enable);
+    if (!context)
+        return;
+    if (context->state.w_buffer_mode == enable)
+        return;
+    context->state.w_buffer_mode = enable;
+    if (context->alloc_space)
+        renderer::set_w_buffer(*emuenv.renderer, context->renderer.get(), enable != SCE_GXM_WBUFFER_DISABLED);
 }
 
-EXPORT(void, sceGxmSetWClampEnable) {
-    TRACY_FUNC(sceGxmSetWClampEnable);
-    UNIMPLEMENTED();
+EXPORT(void, sceGxmSetWClampEnable, SceGxmContext *context, SceGxmWClampMode enable) {
+    TRACY_FUNC(sceGxmSetWClampEnable, context, enable);
+    if (!context)
+        return;
+    if (context->state.w_clamp_mode == enable)
+        return;
+    context->state.w_clamp_mode = enable;
+    if (context->alloc_space) {
+        const bool on = enable != SCE_GXM_WCLAMP_MODE_DISABLED;
+        renderer::set_w_clamp(*emuenv.renderer, context->renderer.get(), on, on ? context->state.w_clamp_value : 0.0f);
+    }
 }
 
 EXPORT(void, sceGxmSetWClampValue, SceGxmContext *context, float clampValue) {
     TRACY_FUNC(sceGxmSetWClampValue, context, clampValue);
-    UNIMPLEMENTED();
+    if (!context)
+        return;
+    context->state.w_clamp_value = clampValue;
+    if (context->alloc_space && context->state.w_clamp_mode != SCE_GXM_WCLAMP_MODE_DISABLED)
+        renderer::set_w_clamp(*emuenv.renderer, context->renderer.get(), true, clampValue);
 }
 
 EXPORT(int, sceGxmSetWarningEnabled) {
@@ -4557,6 +4584,14 @@ EXPORT(int, sceGxmShaderPatcherCreateFragmentProgram, SceGxmShaderPatcher *shade
     SceGxmFragmentProgram *const fp = fragmentProgram->get(mem);
     fp->is_maskupdate = false;
     fp->program = programId->program;
+    if (blendInfo) {
+        fp->has_blend_info = true;
+        fp->blend_info = *blendInfo;
+    } else {
+        fp->has_blend_info = false;
+        fp->blend_info = default_blend_info;
+    }
+    fp->pass_type = gxm::infer_fragment_pass_type(false, programId->program.get(mem), fp->has_blend_info ? &fp->blend_info : nullptr);
 
     if (!renderer::create(fp->renderer_data, *emuenv.renderer, *programId->program.get(mem), blendInfo, emuenv.renderer->gxp_ptr_map)) {
         return RET_ERROR(SCE_GXM_ERROR_DRIVER);
@@ -4582,6 +4617,8 @@ EXPORT(int, sceGxmShaderPatcherCreateMaskUpdateFragmentProgram, SceGxmShaderPatc
 
     SceGxmFragmentProgram *const fp = fragmentProgram->get(mem);
     fp->is_maskupdate = true;
+    fp->has_blend_info = false;
+    fp->pass_type = SCE_GXM_PASS_TYPE_MASK_UPDATE;
     fp->program = Ptr<const SceGxmProgram>(alloc_callbacked(emuenv, thread_id, shaderPatcher->params, size_mask_gxp));
     memcpy(const_cast<SceGxmProgram *>(fp->program.get(mem)), mask_gxp, size_mask_gxp);
 

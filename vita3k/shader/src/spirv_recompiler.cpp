@@ -32,6 +32,7 @@
 #include <util/overloaded.h>
 
 #include <SPIRV/SpvBuilder.h>
+#include <SPIRV/GLSL.std.450.h>
 #include <SPIRV/disassemble.h>
 #include <spirv_glsl.hpp>
 
@@ -1002,7 +1003,7 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
 
     if (program_type == SceGxmProgramType::Vertex) {
         // Create the default reg uniform buffer
-        std::vector<spv::Id> uniform_composition = { v4, f32, f32, f32, f32, f32 };
+        std::vector<spv::Id> uniform_composition = { v4, f32, f32, f32, f32, f32, f32, f32 };
         if (uniform_buffer_count > 0)
             uniform_composition.push_back(buffer_addresses_type);
         if (uniform_texture_count > 0) {
@@ -1026,6 +1027,8 @@ static SpirvShaderParameters create_parameters(spv::Builder &b, const SceGxmProg
         ADD_VERT_UNIFORM_MEMBER(screen_height);
         ADD_VERT_UNIFORM_MEMBER(z_offset);
         ADD_VERT_UNIFORM_MEMBER(z_scale);
+        ADD_VERT_UNIFORM_MEMBER(w_clamp_value);
+        ADD_VERT_UNIFORM_MEMBER(w_buffer_enable);
 
 #undef ADD_VERT_UNIFORM_MEMBER
 #define ADD_EXT_UNIFORM_MEMBER(name)                                                                                                                                                \
@@ -1673,6 +1676,18 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
                 const spv::Id neg_two = b.makeFloatConstant(-2.0f);
                 const spv::Id zero = b.makeFloatConstant(0.0f);
 
+                if (translation_state.render_info_id != spv::NoResult) {
+                    spv::Id w = b.createCompositeExtract(o_val, f32, 3);
+                    spv::Id w_clamp_ptr = utils::create_access_chain(b, spv::StorageClassUniform, translation_state.render_info_id, { b.makeIntConstant(VERT_UNIFORM_w_clamp_value) });
+                    spv::Id w_clamp = b.createLoad(w_clamp_ptr, spv::NoPrecision);
+                    spv::Id abs_w = b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FAbs, { w });
+                    spv::Id clamped_abs = b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FMax, { abs_w, w_clamp });
+                    spv::Id is_neg = b.createBinOp(spv::OpFOrdLessThan, b.makeBoolType(), w, zero);
+                    spv::Id neg_abs = b.createUnaryOp(spv::OpFNegate, f32, clamped_abs);
+                    spv::Id clamped_w = b.createTriOp(spv::OpSelect, f32, is_neg, neg_abs, clamped_abs);
+                    o_val = b.createCompositeInsert(clamped_w, o_val, b.getTypeId(o_val), 3);
+                }
+
                 spv::Id screen_scale;
                 spv::Id screen_offset;
                 // the y axis is inverted in opengl compared to vulkan/gxp
@@ -1738,8 +1753,12 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
                     z_offset = b.createLoad(z_offset, spv::NoPrecision);
                     z_scale = b.createLoad(z_scale, spv::NoPrecision);
 
-                    // screen_z = z_offset + z_scale * (z / w)
-                    z = b.createBinOp(spv::OpFDiv, f32, z, w);
+                    spv::Id w_buf_ptr = utils::create_access_chain(b, spv::StorageClassUniform, translation_state.render_info_id, { b.makeIntConstant(VERT_UNIFORM_w_buffer_enable) });
+                    spv::Id w_buf = b.createLoad(w_buf_ptr, spv::NoPrecision);
+                    spv::Id depth_src = b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FMix, { z, one, w_buf });
+
+                    // screen_z = z_offset + z_scale * (z / w)  or  (1 / w) when W-buffer is on
+                    z = b.createBinOp(spv::OpFDiv, f32, depth_src, w);
                     z = b.createBinOp(spv::OpFMul, f32, z, z_scale);
                     z = b.createBinOp(spv::OpFAdd, f32, z, z_offset);
 

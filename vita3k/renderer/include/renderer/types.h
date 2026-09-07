@@ -70,6 +70,8 @@ enum class GXMState : std::uint16_t {
     FragmentProgramEnable,
     VisibilityBuffer,
     VisibilityIndex,
+    WClamp,
+    WBuffer,
     TotalState
 };
 
@@ -152,6 +154,10 @@ struct GxmRecordState {
     SceIVector2 region_clip_max;
 
     float writing_mask = 0.0f;
+
+    bool w_clamp_enable = false;
+    bool w_buffer_enable = false;
+    float w_clamp_value = 0.0f;
 };
 
 struct Context {

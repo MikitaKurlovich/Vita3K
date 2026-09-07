@@ -27,6 +27,20 @@ struct EmuEnvState;
 struct GxmState;
 
 namespace gxm {
+inline SceGxmPassType infer_fragment_pass_type(bool is_maskupdate, const SceGxmProgram *program, const SceGxmBlendInfo *blend) {
+    if (is_maskupdate)
+        return SCE_GXM_PASS_TYPE_MASK_UPDATE;
+    if (program) {
+        if (program->is_discard_used())
+            return SCE_GXM_PASS_TYPE_DISCARD;
+        if ((program->program_flags & SCE_GXM_PROGRAM_FLAG_OUTPUT_UNDEFINED) && program->is_depth_replace_used())
+            return SCE_GXM_PASS_TYPE_DEPTH_REPLACE;
+    }
+    if (blend && ((blend->colorFunc != SCE_GXM_BLEND_FUNC_NONE) || (blend->alphaFunc != SCE_GXM_BLEND_FUNC_NONE)))
+        return SCE_GXM_PASS_TYPE_TRANSLUCENT;
+    return SCE_GXM_PASS_TYPE_OPAQUE;
+}
+
 // Color.
 SceGxmColorBaseFormat get_base_format(SceGxmColorFormat src);
 size_t bits_per_pixel(SceGxmColorBaseFormat base_format);

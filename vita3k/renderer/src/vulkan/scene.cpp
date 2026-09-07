@@ -282,7 +282,9 @@ static void bind_vertex_streams(VKContext &context, MemState &mem, uint32_t inst
         for (int i = 0; i < max_stream_idx; i++) {
             if (state.vertex_streams[i].data)
                 // on the PS Vita, shader stores are used most of the time to write to a vertex buffer
-                context.state.buffer_trapping.access_buffer(state.vertex_streams[i].data.address(), static_cast<uint32_t>(state.vertex_streams[i].size), mem, context.state.has_shader_store);
+                // cover_everything: first/last 4K of a skinned stream must trap, or bone writes
+                // miss protect_tree and the character flickers while static meshes stay still.
+                context.state.buffer_trapping.access_buffer(state.vertex_streams[i].data.address(), static_cast<uint32_t>(state.vertex_streams[i].size), mem, context.state.has_shader_store, true);
         }
     }
 
@@ -441,6 +443,8 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     vert_ublock.viewport_flag = (context.record.viewport_flat) ? 0.0f : 1.0f;
     vert_ublock.z_offset = context.record.z_offset;
     vert_ublock.z_scale = context.record.z_scale;
+    vert_ublock.w_clamp_value = context.record.w_clamp_enable ? context.record.w_clamp_value : 0.0f;
+    vert_ublock.w_buffer_enable = context.record.w_buffer_enable ? 1.0f : 0.0f;
     vert_ublock.screen_width = context.render_target->width / context.state.res_multiplier;
     vert_ublock.screen_height = context.render_target->height / context.state.res_multiplier;
 
@@ -479,7 +483,7 @@ void draw(VKContext &context, SceGxmPrimitiveType type, SceGxmIndexFormat format
     if (use_memory_mapping) {
         auto [buffer, offset] = context.state.get_matching_mapping(indices);
         if (context.state.mapping_method == MappingMethod::DoubleBuffer) {
-            TrappedBuffer *trapped_buffer = context.state.buffer_trapping.access_buffer(indices.address(), count * index_size, mem);
+            TrappedBuffer *trapped_buffer = context.state.buffer_trapping.access_buffer(indices.address(), count * index_size, mem, false, true);
             if (trapped_buffer->extra == ~0) {
                 // store the max element in extra
                 if (format == SCE_GXM_INDEX_FORMAT_U16) {

@@ -4,6 +4,7 @@
 #include <util/align.h>
 
 #include <array>
+#include <cstddef>
 #include <cstring>
 #include <utility>
 
@@ -16,6 +17,8 @@ struct RenderVertUniformBlock {
     float screen_height;
     float z_offset;
     float z_scale;
+    float w_clamp_value;
+    float w_buffer_enable;
 };
 
 // used internally to identify the field by the shader recompiler
@@ -26,8 +29,14 @@ enum VertUniformFieldId : uint32_t {
     VERT_UNIFORM_screen_width,
     VERT_UNIFORM_screen_height,
     VERT_UNIFORM_z_offset,
-    VERT_UNIFORM_z_scale
+    VERT_UNIFORM_z_scale,
+    VERT_UNIFORM_w_clamp_value,
+    VERT_UNIFORM_w_buffer_enable
 };
+
+static_assert(offsetof(RenderVertUniformBlock, viewport_flip) == 0);
+static_assert(offsetof(RenderVertUniformBlock, w_clamp_value) == 36);
+static_assert(offsetof(RenderVertUniformBlock, w_buffer_enable) == 40);
 
 struct RenderFragUniformBlock {
     float back_disabled;

@@ -253,6 +253,11 @@ struct GxmContextState {
     int back_depth_bias_factor = 0;
     int back_depth_bias_units = 0;
 
+    // Homogeneous W. Hardware default clamp is a small epsilon.
+    SceGxmWClampMode w_clamp_mode = SCE_GXM_WCLAMP_MODE_DISABLED;
+    float w_clamp_value = 0.00001f;
+    SceGxmWBufferMode w_buffer_mode = SCE_GXM_WBUFFER_DISABLED;
+
     // Textures.
     std::array<TextureData, SCE_GXM_MAX_TEXTURE_UNITS * 2> textures;
 
@@ -286,6 +291,9 @@ struct SceGxmFragmentProgram {
     // only necessary with async compilation
     std::atomic<uint32_t> compile_threads_on = 0;
     bool is_maskupdate;
+    bool has_blend_info = false;
+    SceGxmBlendInfo blend_info{};
+    SceGxmPassType pass_type = SCE_GXM_PASS_TYPE_OPAQUE;
     std::unique_ptr<renderer::FragmentProgram> renderer_data;
 };
 
