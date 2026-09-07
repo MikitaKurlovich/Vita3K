@@ -8,6 +8,7 @@ set(SOURCE_LIST
 	include/kernel/object_store.h
 	include/kernel/debugger.h
 	include/kernel/load_self.h
+	include/kernel/module_info.h
 	include/kernel/callback.h
 	src/kernel.cpp
 	src/thread.cpp
@@ -31,3 +32,13 @@ if(TRACY_ENABLE_ON_CORE_COMPONENTS)
 	target_link_libraries(kernel PRIVATE tracy)
 endif()
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCE_LIST})
+
+if(BUILD_TESTING AND NOT ANDROID)
+	add_executable(
+		kernel-tests
+		tests/module_info_tests.cpp
+	)
+	target_include_directories(kernel-tests PRIVATE include)
+	target_link_libraries(kernel-tests PRIVATE googletest mem util)
+	add_test(NAME kernel COMMAND kernel-tests)
+endif()

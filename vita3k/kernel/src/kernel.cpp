@@ -20,6 +20,7 @@
 #endif
 
 #include <cpu/common.h>
+#include <kernel/module_info.h>
 #include <kernel/state.h>
 #include <mem/functions.h>
 
@@ -277,16 +278,28 @@ void KernelState::deinit(MemState &mem) {
     paused_threads_status.clear();
 }
 
-SceKernelModuleInfo *KernelState::find_module_by_addr(Address address) {
-    const auto lock = std::lock_guard(mutex);
-    for (auto &[_, mod] : loaded_modules) {
-        for (auto &seg : mod->info.segments) {
-            if (!seg.size)
-                continue;
-            if (seg.vaddr.address() <= address && address <= seg.vaddr.address() + seg.memsz) {
-                return &mod->info;
-            }
-        }
+const SceKernelModuleInfo *KernelState::find_module_by_addr_unlocked(Address address) const {
+    for (const auto &[_, mod] : loaded_modules) {
+        if (module_contains_addr(mod->info, address))
+            return &mod->info;
     }
     return nullptr;
+}
+
+SceKernelModuleInfo *KernelState::find_module_by_addr(Address address) {
+    const auto lock = std::lock_guard(mutex);
+    return const_cast<SceKernelModuleInfo *>(find_module_by_addr_unlocked(address));
+}
+
+int KernelState::copy_module_info_by_addr(Address address, Address info_va, MemState &mem) {
+    SceKernelModuleInfo host{};
+    bool found = false;
+    {
+        const auto lock = std::lock_guard(mutex);
+        if (const SceKernelModuleInfo *mod = find_module_by_addr_unlocked(address)) {
+            host = *mod;
+            found = true;
+        }
+    }
+    return copy_module_info_to_guest(found ? &host : nullptr, info_va, mem);
 }

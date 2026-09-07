@@ -25,7 +25,7 @@ TRACY_MODULE_NAME(SceModulemgrForDriver);
 
 struct SceKernelULMOption;
 
-EXPORT(int, ksceKernelGetModuleInfoByAddr, SceUID pid, Ptr<void> module_addr, SceKernelModuleInfo *info) {
+EXPORT(int, ksceKernelGetModuleInfoByAddr, SceUID pid, Ptr<void> module_addr, Ptr<SceKernelModuleInfo> info) {
     TRACY_FUNC(ksceKernelGetModuleInfoByAddr, pid, module_addr, info);
     return CALL_EXPORT(sceKernelGetModuleInfoByAddr, module_addr, info);
 }

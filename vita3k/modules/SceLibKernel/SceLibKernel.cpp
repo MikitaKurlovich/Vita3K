@@ -26,6 +26,7 @@
 #include <cpu/functions.h>
 #include <dlmalloc.h>
 #include <io/functions.h>
+#include <kernel/module_info.h>
 #include <kernel/state.h>
 #include <kernel/sync_primitives.h>
 #include <packages/functions.h>
@@ -1348,15 +1349,16 @@ EXPORT(int, sceKernelGetLwMutexInfo, Ptr<SceKernelLwMutexWork> workarea, Ptr<Sce
     return CALL_EXPORT(sceKernelGetLwMutexInfoById, workarea.get(emuenv.mem)->uid, info);
 }
 
-EXPORT(int, sceKernelGetModuleInfoByAddr, Ptr<void> addr, SceKernelModuleInfo *info) {
+EXPORT(int, sceKernelGetModuleInfoByAddr, Ptr<void> addr, Ptr<SceKernelModuleInfo> info) {
     TRACY_FUNC(sceKernelGetModuleInfoByAddr, addr, info);
-    const auto mod = emuenv.kernel.find_module_by_addr(addr.address());
-    if (mod) {
-        *info = *mod;
-        return SCE_KERNEL_OK;
-    }
-
-    return RET_ERROR(SCE_KERNEL_ERROR_MODULEMGR_NOENT);
+    const int err = emuenv.kernel.copy_module_info_by_addr(addr.address(), info.address(), emuenv.mem);
+    if (err == SCE_KERNEL_ERROR_ILLEGAL_ADDR)
+        return RET_ERROR(SCE_KERNEL_ERROR_ILLEGAL_ADDR);
+    if (err == SCE_KERNEL_ERROR_MODULEMGR_NOENT)
+        return RET_ERROR(SCE_KERNEL_ERROR_MODULEMGR_NOENT);
+    if (err != SCE_KERNEL_OK)
+        return RET_ERROR(SCE_KERNEL_ERROR_MODULEMGR_NOENT);
+    return SCE_KERNEL_OK;
 }
 
 EXPORT(int, sceKernelGetMsgPipeInfo) {

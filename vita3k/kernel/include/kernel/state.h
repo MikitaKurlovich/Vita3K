@@ -199,7 +199,10 @@ struct KernelState {
 
     void set_memory_watch(bool enabled);
     void invalidate_jit_cache(Address start, size_t length);
+    // Caller must hold mutex. Do not call find_module_by_addr from here: mutex is not recursive.
+    const SceKernelModuleInfo *find_module_by_addr_unlocked(Address address) const;
     SceKernelModuleInfo *find_module_by_addr(Address address);
+    int copy_module_info_by_addr(Address address, Address info_va, MemState &mem);
 
 private:
     std::atomic<SceUID> next_uid{ 1 };

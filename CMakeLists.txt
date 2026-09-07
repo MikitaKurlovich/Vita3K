@@ -71,6 +71,7 @@ if(MSVC)
 endif()
 
 enable_testing()
+option(BUILD_TESTING "Build Vita3K host unit tests (kernel-tests, util-tests)" ON)
 
 cmake_policy(SET CMP0069 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)

@@ -63,6 +63,8 @@ struct Debugger {
     bool log_imports = false;
     bool log_exports = false;
     bool dump_elfs = false;
+    bool log_ehabi = false;
+    bool dump_abort_state = false;
 
     // Ring buffer of recent HLE imports. Dumped on guest throw/abort.
     static constexpr size_t import_flight_size = 64;

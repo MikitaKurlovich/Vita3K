@@ -18,9 +18,10 @@
 #pragma once
 
 #include <module/module.h>
+#include <mem/ptr.h>
 
 struct SceKernelModuleInfo;
 
 DECL_EXPORT(SceInt32, sceKernelGetThreadCurrentPriority);
-DECL_EXPORT(int, sceKernelGetModuleInfoByAddr, Ptr<void> addr, SceKernelModuleInfo *info);
+DECL_EXPORT(int, sceKernelGetModuleInfoByAddr, Ptr<void> addr, Ptr<SceKernelModuleInfo> info);
 DECL_EXPORT(int, sceClibPrintf, const char *fmt, module::vargs args);

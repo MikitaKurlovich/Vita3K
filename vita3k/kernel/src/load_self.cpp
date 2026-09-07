@@ -17,6 +17,7 @@
 
 #include <cpu/functions.h>
 #include <kernel/load_self.h>
+#include <kernel/module_info.h>
 #include <kernel/relocation.h>
 #include <kernel/state.h>
 #include <kernel/types.h>
@@ -40,6 +41,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <string_view>
 
 static constexpr uint32_t NID_MODULE_STOP = 0x79F8E492;
 static constexpr uint32_t NID_MODULE_EXIT = 0x913482A9;
@@ -47,6 +49,45 @@ static constexpr uint32_t NID_MODULE_START = 0x935CD196;
 static constexpr uint32_t NID_MODULE_INFO = 0x6C2224BA;
 static constexpr uint32_t NID_SYSLYB = 0x936c8a78;
 static constexpr uint32_t NID_PROCESS_PARAM = 0x70FBA1E7;
+
+static constexpr uint32_t UNWIND_NIDS[] = {
+    0xF87E6098, // __cxa_throw
+    0x21D6C279, // __cxa_rethrow
+    0xAE42C1D5, // __snc_personality_v0
+    0x12472ADD, // _Unwind_RaiseException
+    0x13D5D5A1, // _Unwind_Resume
+    0x74274866, // __Unwind_Resume
+    0x7DFC519A, // _Unwind_Resume_or_Rethrow
+    0xA22B2436, // _Unwind_Backtrace
+    0x8A5F29D8, // _Unwind_Complete
+    0x4BB45B70, // _Unwind_DeleteException
+    0x7772C028, // _Unwind_ForcedUnwind
+    0xDBE840D6, // _Unwind_GetCFA
+    0xAC15DBA5, // _Unwind_GetDataRelBase
+    0xBAC00FF7, // _Unwind_GetLanguageSpecificData
+    0xDA5097CE, // _Unwind_GetRegionStart
+    0x8D4953C7, // _Unwind_GetTextRelBase
+    0x0DFF2B2C, // _Unwind_VRS_Get
+    0xF16E32FC, // _Unwind_VRS_Pop
+    0xDAB28374, // _Unwind_VRS_Set
+    0xD172A1F6, // __aeabi_unwind_cpp_pr0
+    0x6B008191, // __aeabi_unwind_cpp_pr1
+    0x1EFFBAC2, // __set_exidx_main
+};
+
+static void audit_unwind_bindings(KernelState &kernel, MemState &mem, const std::string &self_path) {
+    const std::lock_guard<std::mutex> guard(kernel.export_nids_mutex);
+    for (uint32_t nid : UNWIND_NIDS) {
+        auto range = kernel.func_binding_infos.equal_range(nid);
+        for (auto it = range.first; it != range.second; ++it) {
+            const uint32_t *stub = Ptr<uint32_t>(it->second.entry_address).get(mem);
+            if (stub && stub[0] == 0xef000000) {
+                LOG_WARN("[EHABI] module={} nid={} ({}) still svc stub at 0x{:08X} hint=\"import-not-bound-to-LLE-libc\"",
+                    self_path, log_hex(nid), import_name(nid), it->second.entry_address);
+            }
+        }
+    }
+}
 
 static constexpr bool LOG_MODULE_LOADING = false;
 
@@ -615,6 +656,9 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
         }
     };
 
+    Address arm_exidx_p_vaddr = 0;
+    uint32_t arm_exidx_filesz = 0;
+
     for (Elf_Half seg_index = 0; seg_index < elf.e_phnum; ++seg_index) {
         const Elf32_Phdr &seg_header = segments[seg_index];
         // A SELF says where each segment is in the segment info, and the
@@ -684,8 +728,12 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
             if (!relocate(reloc_data, seg_header.p_filesz, segment_reloc_info, mem)) {
                 return -1;
             }
-        } else if ((seg_header.p_type == PT_SCE_COMMENT) || (seg_header.p_type == PT_SCE_VERSION)
-            || (seg_header.p_type == PT_ARM_EXIDX) /* TODO: this may be important and require being loaded */) {
+        } else if (seg_header.p_type == PT_ARM_EXIDX) {
+            // Table lives inside PT_LOAD text; do not allocate. Keep p_vaddr for a cross-check.
+            arm_exidx_p_vaddr = seg_header.p_vaddr;
+            arm_exidx_filesz = seg_header.p_filesz;
+            LOG_INFO("{}: Skipping special segment {}...", self_path, log_hex(seg_header.p_type));
+        } else if ((seg_header.p_type == PT_SCE_COMMENT) || (seg_header.p_type == PT_SCE_VERSION)) {
             LOG_INFO("{}: Skipping special segment {}...", self_path, log_hex(seg_header.p_type));
         } else {
             LOG_CRITICAL("{}: Skipping segment with unknown p_type {}!", self_path, log_hex(seg_header.p_type));
@@ -757,24 +805,51 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
     // sce_module_info stores EXIDX/EXTAB as offsets from this segment, same as
     // module_start/tls_start. SceKernelModuleInfo must expose process VAs:
     // LLE libc looks them up via sceKernelGetModuleInfoByAddr to unwind C++ throws.
-    const auto relocate_info_offset = [&](uint32_t offset) -> Ptr<const void> {
-        if (offset == 0 || offset == 0xffffffff)
-            return Ptr<const void>();
-        const Address seg_base = module_info_segment_address.address();
-        if (offset >= seg_base)
-            return Ptr<const void>(offset);
-        return Ptr<const void>(seg_base + offset);
-    };
-    sceKernelModuleInfo->exidx_top = relocate_info_offset(module_info->exidx_top);
-    sceKernelModuleInfo->exidx_btm = relocate_info_offset(module_info->exidx_end);
-    sceKernelModuleInfo->extab_top = relocate_info_offset(module_info->extab_top);
-    sceKernelModuleInfo->extab_btm = relocate_info_offset(module_info->extab_end);
-    if (sceKernelModuleInfo->exidx_top && sceKernelModuleInfo->exidx_btm) {
-        LOG_INFO("Module {} EXIDX [0x{:08X}-0x{:08X}] EXTAB [0x{:08X}-0x{:08X}]",
-            self_path,
-            sceKernelModuleInfo->exidx_top.address(), sceKernelModuleInfo->exidx_btm.address(),
-            sceKernelModuleInfo->extab_top.address(), sceKernelModuleInfo->extab_btm.address());
+    const Address seg_base = module_info_segment_address.address();
+    const uint64_t seg_size = segment_reloc_info[module_info_segment_index].size;
+    const std::string ehabi_name = ehabi_module_label(module_info->name, self_path);
+
+    const Address exidx_top_raw = relocate_module_info_offset(module_info->exidx_top, seg_base, seg_size);
+    const Address exidx_end_raw = relocate_module_info_offset(module_info->exidx_end, seg_base, seg_size);
+    const Address extab_top_raw = relocate_module_info_offset(module_info->extab_top, seg_base, seg_size);
+    const Address extab_end_raw = relocate_module_info_offset(module_info->extab_end, seg_base, seg_size);
+
+    EhabiRange exidx = normalize_ehabi_range(exidx_top_raw, exidx_end_raw);
+    const EhabiRange extab = normalize_ehabi_range(extab_top_raw, extab_end_raw);
+
+    Address phdr_end = 0;
+    const Address phdr_top = exidx_from_phdr(arm_exidx_p_vaddr, arm_exidx_filesz, segment_reloc_info, &phdr_end);
+    if (exidx.top && phdr_top && phdr_top != exidx.top) {
+        LOG_WARN("[EHABI] module={} phdr/module_info EXIDX mismatch phdr=0x{:08X} info=0x{:08X} hint=\"using module_info\"",
+            ehabi_name, phdr_top, exidx.top);
     }
+    if (!exidx.top && phdr_top && std::string_view(exidx.reason) == "no-tables") {
+        exidx.top = phdr_top;
+        exidx.end = phdr_end;
+        exidx.reason = "phdr-fallback";
+    }
+
+    sceKernelModuleInfo->exidx_top = Ptr<const void>(exidx.top);
+    sceKernelModuleInfo->exidx_btm = Ptr<const void>(exidx.end);
+    sceKernelModuleInfo->extab_top = Ptr<const void>(extab.top);
+    sceKernelModuleInfo->extab_btm = Ptr<const void>(extab.end);
+
+    if (exidx.top) {
+        LOG_INFO("[EHABI] module={} exidx=0x{:08X}-0x{:08X} extab=0x{:08X}-0x{:08X} relocated=yes",
+            ehabi_name, exidx.top, exidx.end, extab.top, extab.end);
+    } else if (module_info->exidx_top != 0xffffffff && module_info->exidx_top >= seg_size) {
+        LOG_INFO("[EHABI] module={} exidx=none reason=offset-out-of-segment off=0x{:08X} seg=0x{:08X}+0x{:X} hint=\"C++ throw in this module will terminate; run with --dump-elfs and attach log\"",
+            ehabi_name, module_info->exidx_top, seg_base, seg_size);
+    } else if (std::string_view(exidx.reason) == "degenerate-pair") {
+        LOG_INFO("[EHABI] module={} exidx=none reason=degenerate-pair top=0x{:08X} end=0x{:08X} hint=\"module built with old SDK fake exidx; expected, harmless\"",
+            ehabi_name, exidx_top_raw, exidx_end_raw);
+    } else {
+        LOG_INFO("[EHABI] module={} exidx=none reason={} hint=\"no EHABI tables in module_info\"",
+            ehabi_name, exidx.reason);
+    }
+    LOG_INFO_IF(kernel.debugger.log_ehabi, "[EHABI] module={} raw off exidx=0x{:08X}-0x{:08X} extab=0x{:08X}-0x{:08X} phdr=0x{:08X}+0x{:X}",
+        ehabi_name, module_info->exidx_top, module_info->exidx_end, module_info->extab_top, module_info->extab_end,
+        arm_exidx_p_vaddr, arm_exidx_filesz);
 
     sceKernelModuleInfo->tlsInit = Ptr<const void>(!module_info->tls_start ? 0 : (module_info_segment_address.address() + module_info->tls_start));
     sceKernelModuleInfo->tlsInitSize = module_info->tls_filesz;
@@ -819,6 +894,7 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
     if (!load_imports(*module_info, module_info_segment_address, segment_reloc_info, kernel, mem)) {
         return -1;
     }
+    audit_unwind_bindings(kernel, mem, self_path);
     const SceUID uid = kernel.get_next_uid();
     sceKernelModuleInfo->modid = uid;
     {

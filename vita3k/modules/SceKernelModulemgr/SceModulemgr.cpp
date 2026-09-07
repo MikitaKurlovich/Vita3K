@@ -18,6 +18,7 @@
 #include "SceModulemgr.h"
 #include <io/functions.h>
 #include <kernel/load_self.h>
+#include <kernel/module_info.h>
 #include <kernel/state.h>
 
 #include <modules/module_parent.h>
@@ -132,17 +133,26 @@ EXPORT(int, sceKernelGetModuleIdByAddr, Ptr<void> addr) {
     return RET_ERROR(SCE_KERNEL_ERROR_MODULEMGR_NOENT);
 }
 
-EXPORT(int, sceKernelGetModuleInfo, SceUID modid, SceKernelModuleInfo *info) {
+EXPORT(int, sceKernelGetModuleInfo, SceUID modid, Ptr<SceKernelModuleInfo> info) {
     TRACY_FUNC(sceKernelGetModuleInfo, modid, info);
-    const std::lock_guard<std::mutex> lock(emuenv.kernel.mutex);
+    if (!info)
+        return RET_ERROR(SCE_KERNEL_ERROR_ILLEGAL_ADDR);
 
-    auto module = emuenv.kernel.loaded_modules.find(modid);
-    if (module == emuenv.kernel.loaded_modules.end()) {
-        return RET_ERROR(SCE_KERNEL_ERROR_LIBRARYDB_NO_MOD);
+    SceKernelModuleInfo host{};
+    {
+        const std::lock_guard<std::mutex> lock(emuenv.kernel.mutex);
+        auto module = emuenv.kernel.loaded_modules.find(modid);
+        if (module == emuenv.kernel.loaded_modules.end()) {
+            return RET_ERROR(SCE_KERNEL_ERROR_LIBRARYDB_NO_MOD);
+        }
+        host = module->second->info;
     }
 
-    memcpy(info, &module->second->info, module->second->info.size);
-
+    const int err = copy_module_info_to_guest(&host, info.address(), emuenv.mem);
+    if (err == SCE_KERNEL_ERROR_ILLEGAL_ADDR)
+        return RET_ERROR(SCE_KERNEL_ERROR_ILLEGAL_ADDR);
+    if (err != SCE_KERNEL_OK)
+        return RET_ERROR(SCE_KERNEL_ERROR_LIBRARYDB_NO_MOD);
     return SCE_KERNEL_OK;
 }
 
