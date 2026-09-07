@@ -74,6 +74,8 @@ struct ThreadState {
     uint64_t last_vblank_waited;
     // set to true if thread is processing kernel callbacks
     bool is_processing_callbacks = false;
+    // sceFiosOverlayThreadSetDisabled02: per-thread, not process-wide.
+    int fios_overlay_disabled = 0;
 
     CPUStatePtr cpu;
     ThreadStatus status = ThreadStatus::dormant;

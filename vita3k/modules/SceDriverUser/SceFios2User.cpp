@@ -19,6 +19,13 @@
 
 #include "io/functions.h"
 
+#include <config/state.h>
+#include <kernel/state.h>
+#include <kernel/thread/thread_state.h>
+
+#include <cstring>
+#include <string>
+
 #include <util/tracy.h>
 TRACY_MODULE_NAME(SceFios2User);
 
@@ -108,19 +115,39 @@ EXPORT(int, sceFiosOverlayResolveSync02) {
 
 EXPORT(int, sceFiosOverlayResolveWithRangeSync02, SceUID processId, SceFiosOverlayResolveMode resolveFlag, const char *pInPath, char *pOutPath, SceUInt32 maxPath, SceUInt32 min_order, SceUInt32 max_order) {
     TRACY_FUNC(sceFiosOverlayResolveWithRangeSync02, processId, resolveFlag, pInPath, pOutPath, maxPath, min_order, max_order);
-    const std::string resolved = resolve_path(emuenv.io, pInPath, min_order, max_order);
-    strncpy(pOutPath, resolved.c_str(), maxPath);
+
+    const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
+    const bool disabled = emuenv.cfg.fios_overlay_per_thread && thread && thread->fios_overlay_disabled != 0;
+
+    std::string resolved;
+    const char *src = pInPath ? pInPath : "";
+    if (!disabled) {
+        resolved = resolve_path(emuenv.io, src, min_order, max_order);
+        src = resolved.c_str();
+    }
+
+    if (pOutPath && maxPath > 0) {
+        std::strncpy(pOutPath, src, maxPath);
+        pOutPath[maxPath - 1] = '\0';
+    }
+
+    LOG_DEBUG("[FIOS] overlay resolve tid={} disabled={} in={} out={}",
+        thread_id, disabled ? 1 : 0, pInPath ? pInPath : "", pOutPath ? pOutPath : "");
 
     return SCE_FIOS_OK;
 }
 
 EXPORT(int, sceFiosOverlayThreadIsDisabled02) {
     TRACY_FUNC(sceFiosOverlayThreadIsDisabled02);
-    return emuenv.io.fios_overlay_thread_disabled;
+    if (!emuenv.cfg.fios_overlay_per_thread)
+        return 0;
+    const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
+    return thread ? thread->fios_overlay_disabled : 0;
 }
 
 EXPORT(int, sceFiosOverlayThreadSetDisabled02, int disabled) {
     TRACY_FUNC(sceFiosOverlayThreadSetDisabled02, disabled);
-    emuenv.io.fios_overlay_thread_disabled = disabled;
+    if (const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id))
+        thread->fios_overlay_disabled = disabled;
     return SCE_FIOS_OK;
 }
